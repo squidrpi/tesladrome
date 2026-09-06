@@ -337,6 +337,32 @@ h3 {
   height: calc(100% - 76px);
 }
 
+.albumPager {
+  width: min(430px, 62%);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.albumPager button {
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.albumHeader {
+  height: 60px;
+  min-height: 60px;
+  width: calc(100% - 16px);
+  margin: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--button);
+}
+
 .historyList {
   height: calc(100% - 76px);
   padding-bottom: 10px;
@@ -694,6 +720,19 @@ h3 {
 .themeButtons .selected {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent), transparent 80%);
+}
+
+.albumLetterGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.albumLetterGrid button {
+  min-width: 0;
+  margin: 0;
+  justify-content: center;
+  font-size: 25px;
 }
 
 @media (max-height: 620px) {

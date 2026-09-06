@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import {
   ArrowLeft,
+  ArrowRight,
   Eye,
   EyeOff,
   Heart,
@@ -29,6 +30,9 @@ const USER_PROFILES_KEY = "teslaNavidromeUserProfiles"
 const CURRENT_AUTH_KEY = "teslaNavidromeCurrentAuth"
 const MIN_FUTURE = 8
 const MAX_HISTORY = 200
+const ALBUM_PAGE_SIZE = 10
+const ARTIST_PAGE_SIZE = 10
+const ALBUM_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")
 
 function emptyAuthState() {
   return {
@@ -310,6 +314,8 @@ function App() {
   const [userProfiles, setUserProfiles] = useState(loadUserProfiles)
   const [newPlaylistName, setNewPlaylistName] = useState("")
   const [dragState, setDragState] = useState(null)
+  const [albumPage, setAlbumPage] = useState({ offset: 0, totalSize: 0, hasNext: false, loading: false })
+  const [artistPage, setArtistPage] = useState({ offset: 0, hasNext: false, loading: false })
   const audioRef = useRef(null)
   const searchInputRef = useRef(null)
   const currentRowRef = useRef(null)
@@ -320,6 +326,9 @@ function App() {
   const skipStatsRef = useRef(loadSkipStats())
   const playStartRef = useRef({ songId: "", startedAt: 0, duration: 0 })
   const playbackQueueRef = useRef({ songs: [], index: -1, isOrderedPlayback: false })
+  const albumLoadRef = useRef(false)
+  const artistLoadRef = useRef(false)
+  const artistCatalogRef = useRef([])
 
   const playbackQueueActive = playbackQueue.length > 0 && playbackQueueIndex >= 0
   const currentSong = playbackQueueActive
@@ -342,6 +351,169 @@ function App() {
     playbackQueueRef.current = { songs: [], index: -1, isOrderedPlayback: false }
     setPlaybackQueue([])
     setPlaybackQueueIndex(-1)
+  }
+
+  async function loadAlbumPage(offset, knownTotalSize = albumPage.totalSize) {
+    if (albumLoadRef.current) return
+
+    albumLoadRef.current = true
+    setAlbumPage((page) => ({ ...page, loading: true }))
+    try {
+      const data = await subsonic(
+        "getAlbumList2",
+        {
+          type: "alphabeticalByName",
+          size: ALBUM_PAGE_SIZE,
+          offset,
+        },
+        auth,
+      )
+      const albums = (data.albumList2?.album || []).map(normalizeAlbum)
+      const totalSize = Number(data.albumList2?.totalSize || 0) || knownTotalSize
+      setAlbumResults(albums)
+      setAlbumPage({
+        offset,
+        totalSize,
+        hasNext:
+          albums.length === ALBUM_PAGE_SIZE &&
+          (totalSize === 0 || offset + albums.length < totalSize),
+        loading: false,
+      })
+      window.requestAnimationFrame(() => {
+        document.querySelector(".songList")?.scrollTo({ top: 0, behavior: "auto" })
+      })
+    } catch (err) {
+      setStatus(err.message)
+      setAlbumPage((page) => ({ ...page, loading: false }))
+    } finally {
+      albumLoadRef.current = false
+    }
+  }
+
+  async function jumpToAlbumLetter(letter) {
+    if (albumLoadRef.current) return
+
+    setMenu(null)
+    albumLoadRef.current = true
+    setAlbumPage((page) => ({ ...page, loading: true }))
+    try {
+      let totalSize = albumPage.totalSize
+      if (!totalSize) {
+        let lastKnownAlbum = 0
+        let firstPossibleEmpty = 1
+
+        // Navidrome does not always return totalSize. Find the first empty
+        // offset with logarithmic probes, without storing album pages.
+        while (true) {
+          const data = await subsonic(
+            "getAlbumList2",
+            { type: "alphabeticalByName", size: 1, offset: firstPossibleEmpty },
+            auth,
+          )
+          if (!(data.albumList2?.album || []).length) break
+          lastKnownAlbum = firstPossibleEmpty
+          firstPossibleEmpty *= 2
+        }
+
+        let low = lastKnownAlbum + 1
+        let high = firstPossibleEmpty
+        while (low < high) {
+          const midpoint = Math.floor((low + high) / 2)
+          const data = await subsonic(
+            "getAlbumList2",
+            { type: "alphabeticalByName", size: 1, offset: midpoint },
+            auth,
+          )
+          if ((data.albumList2?.album || []).length) low = midpoint + 1
+          else high = midpoint
+        }
+        totalSize = low
+      }
+
+      let low = 0
+      let high = totalSize - 1
+      let matchOffset = totalSize - 1
+
+      // Find the first alphabetically matching album without retaining the
+      // intermediate records in the browser.
+      while (low <= high) {
+        const midpoint = Math.floor((low + high) / 2)
+        const data = await subsonic(
+          "getAlbumList2",
+          { type: "alphabeticalByName", size: 1, offset: midpoint },
+          auth,
+        )
+        const name = normalizeAlbum(data.albumList2?.album?.[0] || {}).name.trim()
+        if (name.localeCompare(letter, undefined, { sensitivity: "base" }) < 0) {
+          low = midpoint + 1
+        } else {
+          matchOffset = midpoint
+          high = midpoint - 1
+        }
+      }
+
+      albumLoadRef.current = false
+      await loadAlbumPage(Math.floor(matchOffset / ALBUM_PAGE_SIZE) * ALBUM_PAGE_SIZE, totalSize)
+    } catch (err) {
+      setStatus(err.message)
+      setAlbumPage((page) => ({ ...page, loading: false }))
+    } finally {
+      albumLoadRef.current = false
+    }
+  }
+
+  async function loadArtistCatalog() {
+    const data = await subsonic("getArtists", {}, auth)
+    // getArtists is Navidrome's alphabetical index. Search results are
+    // relevance-ranked, which made the previous A-Z navigation unreliable.
+    artistCatalogRef.current = (data.artists?.index || [])
+      .flatMap((index) => index.artist || [])
+      .map(normalizeArtist)
+      .filter((artist) => artist.albumCount > 0)
+      .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true }))
+  }
+
+  async function loadArtistPage(offset) {
+    if (artistLoadRef.current) return
+
+    artistLoadRef.current = true
+    setArtistPage((page) => ({ ...page, loading: true }))
+    try {
+      if (!artistCatalogRef.current.length) await loadArtistCatalog()
+      const artists = artistCatalogRef.current.slice(offset, offset + ARTIST_PAGE_SIZE)
+      setArtistResults(artists)
+      setArtistPage({ offset, hasNext: offset + artists.length < artistCatalogRef.current.length, loading: false })
+      window.requestAnimationFrame(() => {
+        document.querySelector(".songList")?.scrollTo({ top: 0, behavior: "auto" })
+      })
+    } catch (err) {
+      setStatus(err.message)
+      setArtistPage((page) => ({ ...page, loading: false }))
+    } finally {
+      artistLoadRef.current = false
+    }
+  }
+
+  async function jumpToArtistLetter(letter) {
+    if (artistLoadRef.current) return
+
+    setMenu(null)
+    artistLoadRef.current = true
+    setArtistPage((page) => ({ ...page, loading: true }))
+    try {
+      if (!artistCatalogRef.current.length) await loadArtistCatalog()
+      const matchOffset = artistCatalogRef.current.findIndex(
+        (artist) => artist.name.localeCompare(letter, undefined, { sensitivity: "base" }) >= 0,
+      )
+
+      artistLoadRef.current = false
+      await loadArtistPage(Math.floor(Math.max(0, matchOffset) / ARTIST_PAGE_SIZE) * ARTIST_PAGE_SIZE)
+    } catch (err) {
+      setStatus(err.message)
+      setArtistPage((page) => ({ ...page, loading: false }))
+    } finally {
+      artistLoadRef.current = false
+    }
   }
 
   const streamUrl = useMemo(() => {
@@ -505,6 +677,8 @@ function App() {
     setArtistResults([])
     setPlaylistView(null)
     setViewStack([])
+    artistCatalogRef.current = []
+    setArtistPage({ offset: 0, hasNext: false, loading: false })
     setResultTitle("Results")
     setQuery("")
     setSearchMode("home")
@@ -848,6 +1022,7 @@ function App() {
         // because the list may be inside a scrolling container.
         restoreArtistId: options.restoreArtistId || null,
         restoreAlbumId: options.restoreAlbumId || null,
+        artistPageOffset: artistPage.offset,
         scrollY: window.scrollY || window.pageYOffset || 0,
         // Explicitly remember what kind of page this was. In particular,
         // the root Artists page must remain identifiable even if its
@@ -942,20 +1117,15 @@ function App() {
         window.scrollTo({ top: restoreScrollY, left: 0, behavior: "auto" })
       })
 
-      // The Artists page is the root page. If its cached artist list has
-      // somehow been lost, reload it from Navidrome rather than displaying
-      // an empty page.
+      // The Artists page is the root page. If its cached page has somehow
+      // been lost, reload just that ten-item page rather than the library.
       if (
         previous.resultTitle === "Artists" &&
         !(previous.artistResults || []).length
       ) {
         try {
           setStatus("Loading artists...")
-          const data = await subsonic("getArtists", {}, auth)
-          const artists = (data.artists?.index || [])
-            .flatMap((index) => index.artist || [])
-            .map(normalizeArtist)
-          setArtistResults(artists)
+          await loadArtistPage(previous.artistPageOffset || 0)
           setStatus("")
         } catch (err) {
           setStatus(err.message)
@@ -984,18 +1154,14 @@ function App() {
       window.scrollTo({ top: restoreScrollY, left: 0, behavior: "auto" })
     })
 
-    // If the root Artists page was not cached, get it again from Navidrome.
+    // If the root Artists page was not cached, reload one page only.
     if (
       previousTitle === "Artists" &&
       !(playlistView.previousArtists || []).length
     ) {
       try {
         setStatus("Loading artists...")
-        const data = await subsonic("getArtists", {}, auth)
-        const artists = (data.artists?.index || [])
-          .flatMap((index) => index.artist || [])
-          .map(normalizeArtist)
-        setArtistResults(artists)
+        await loadArtistPage(artistPage.offset || 0)
         setStatus("")
       } catch (err) {
         setStatus(err.message)
@@ -1077,48 +1243,14 @@ function App() {
   async function showAllAlbums() {
     try {
       setStatus("Loading albums...")
-
-      // getAlbumList2 returns at most 500 albums per request. Fetch
-      // additional pages so the Albums view contains the complete library.
-      const pageSize = 500
-      let offset = 0
-      let allAlbums = []
-
-      while (true) {
-        const data = await subsonic(
-          "getAlbumList2",
-          {
-            type: "alphabeticalByName",
-            size: pageSize,
-            offset,
-          },
-          auth,
-        )
-
-        const page = (data.albumList2?.album || []).map(normalizeAlbum)
-        allAlbums = [...allAlbums, ...page]
-
-        const totalSize = Number(data.albumList2?.totalSize || 0)
-
-        // Stop when the final page is returned, or when Navidrome tells us
-        // that we have received the complete result set.
-        if (
-          page.length < pageSize ||
-          (totalSize > 0 && allAlbums.length >= totalSize)
-        ) {
-          break
-        }
-
-        offset += pageSize
-      }
-
       setSongs([])
       setPlaylistResults([])
-      setAlbumResults(allAlbums)
+      setAlbumResults([])
       setArtistResults([])
       setPlaylistView(null)
       setViewStack([])
       setResultTitle("Albums")
+      await loadAlbumPage(0)
       setStatus("")
     } catch (err) {
       setStatus(err.message)
@@ -1128,15 +1260,16 @@ function App() {
   async function showAllArtists() {
     try {
       setStatus("Loading artists...")
-      const data = await subsonic("getArtists", {}, auth)
-      const artists = (data.artists?.index || []).flatMap((index) => index.artist || []).map(normalizeArtist)
       setSongs([])
       setPlaylistResults([])
       setAlbumResults([])
-      setArtistResults(artists)
+      setArtistResults([])
       setPlaylistView(null)
       setViewStack([])
       setResultTitle("Artists")
+      artistCatalogRef.current = []
+      await loadArtistCatalog()
+      await loadArtistPage(0)
       setStatus("")
     } catch (err) {
       setStatus(err.message)
@@ -1718,19 +1851,70 @@ function App() {
       </section>
 
       <section className="content">
-        <div className="results">
-          <button
-            className="sectionHeader buttonHeader"
-            type="button"
-            disabled={!songs.length && !playlistResults.length && !albumResults.length && !artistResults.length}
-            onClick={() => setMenu({ type: "results" })}
-          >
-            <h2>{resultTitle}</h2>
-            <span>
-              {status ||
-                `${songs.length} Songs / ${albumResults.length} Albums / ${artistResults.length} Artists / ${playlistResults.length} Playlists`}
-            </span>
-          </button>
+        <div className={resultTitle === "Albums" && !playlistView ? "results albumsResults" : "results"}>
+          {resultTitle === "Albums" && !playlistView && (
+            <div className="sectionHeader albumHeader">
+              <h2>Albums</h2>
+              <div className="albumPager">
+                <button
+                  type="button"
+                  onClick={() => loadAlbumPage(Math.max(0, albumPage.offset - ALBUM_PAGE_SIZE))}
+                  disabled={albumPage.offset === 0 || albumPage.loading}
+                >
+                  <ArrowLeft size={24} />
+                  Previous
+                </button>
+                <button type="button" onClick={() => setMenu({ type: "albumLetters" })} disabled={albumPage.loading}>
+                  A-Z
+                </button>
+                <button
+                  type="button"
+                  onClick={() => loadAlbumPage(albumPage.offset + ALBUM_PAGE_SIZE)}
+                  disabled={!albumPage.hasNext || albumPage.loading}
+                >
+                  Next
+                  <ArrowRight size={24} />
+                </button>
+              </div>
+            </div>
+          )}
+          {resultTitle === "Artists" && !playlistView && (
+            <div className="sectionHeader albumHeader">
+              <h2>Artists</h2>
+              <div className="albumPager">
+                <button
+                  type="button"
+                  onClick={() => loadArtistPage(Math.max(0, artistPage.offset - ARTIST_PAGE_SIZE))}
+                  disabled={artistPage.offset === 0 || artistPage.loading}
+                >
+                  <ArrowLeft size={24} />
+                  Previous
+                </button>
+                <button type="button" onClick={() => setMenu({ type: "artistLetters" })} disabled={artistPage.loading}>
+                  A-Z
+                </button>
+                <button
+                  type="button"
+                  onClick={() => loadArtistPage(artistPage.offset + ARTIST_PAGE_SIZE)}
+                  disabled={!artistPage.hasNext || artistPage.loading}
+                >
+                  Next
+                  <ArrowRight size={24} />
+                </button>
+              </div>
+            </div>
+          )}
+          {!(resultTitle === "Albums" || resultTitle === "Artists") || playlistView ? (
+            <button
+              className="sectionHeader buttonHeader"
+              type="button"
+              disabled={!songs.length && !playlistResults.length && !albumResults.length && !artistResults.length}
+              onClick={() => setMenu({ type: "results" })}
+            >
+              <h2>{resultTitle}</h2>
+              {status && <span>{status}</span>}
+            </button>
+          ) : null}
           <div className="songList">
             {playlistResults.map((playlist) => (
               <PlaylistRow key={playlist.id} playlist={playlist} auth={auth} onSelect={() => showPlaylist(playlist)} />
@@ -1806,6 +1990,8 @@ function App() {
           onRemoveDisliked={removeDislikedSongs}
           theme={theme}
           onThemeChange={setTheme}
+          onSelectAlbumLetter={jumpToAlbumLetter}
+          onSelectArtistLetter={jumpToArtistLetter}
         />
       )}
     </main>
@@ -2031,11 +2217,23 @@ function ActionMenu({
   onRemoveDisliked,
   theme,
   onThemeChange,
+  onSelectAlbumLetter,
+  onSelectArtistLetter,
 }) {
   const actionSheetRef = useRef(null)
   const [hasFocusedTextInput, setHasFocusedTextInput] = useState(false)
   const isSongMenu = menu.type === "song" || menu.type === "playlistSong" || menu.type === "historySong"
-  const menuTitle = isSongMenu ? menu.song.title : menu.type === "results" ? resultTitle : menu.type === "user" ? "Username" : "History"
+  const menuTitle = isSongMenu
+    ? menu.song.title
+    : menu.type === "results"
+      ? resultTitle
+      : menu.type === "user"
+        ? "Username"
+        : menu.type === "albumLetters"
+          ? "Jump to album letter"
+          : menu.type === "artistLetters"
+            ? "Jump to artist letter"
+          : "History"
   const actionSheetClassName = hasFocusedTextInput ? "actionSheet inputFocused" : "actionSheet"
 
   function handleFocusCapture(event) {
@@ -2084,6 +2282,22 @@ function ActionMenu({
             <button type="button" onClick={onAppendAllResults}>Append All</button>
             <button type="button" onClick={onReplaceResults}>Replace History</button>
           </>
+        )}
+
+        {(menu.type === "albumLetters" || menu.type === "artistLetters") && (
+          <div className="albumLetterGrid">
+            {ALBUM_LETTERS.map((letter) => (
+              <button
+                key={letter}
+                type="button"
+                onClick={() =>
+                  menu.type === "albumLetters" ? onSelectAlbumLetter(letter) : onSelectArtistLetter(letter)
+                }
+              >
+                {letter}
+              </button>
+            ))}
+          </div>
         )}
 
         {menu.type === "user" && (
