@@ -12,7 +12,6 @@ import {
   Pause,
   Play,
   Search,
-  Shuffle,
   SkipBack,
   SkipForward,
   Trash2,
@@ -748,7 +747,7 @@ function App() {
   useEffect(() => {
     if (!canUseApi || didLoadInitialResultsRef.current || playlistView || query.trim()) return
     didLoadInitialResultsRef.current = true
-    randomPlay()
+    showRandomAlbums()
   }, [canUseApi, playlistView, query])
 
   useEffect(() => {
@@ -1290,6 +1289,31 @@ function App() {
     }
   }
 
+  async function showAlbumCollection(type, title) {
+    try {
+      setStatus(`Loading ${title.toLowerCase()}...`)
+      const data = await subsonic("getAlbumList2", { type, size: ALBUM_PAGE_SIZE }, auth)
+      setSongs([])
+      setPlaylistResults([])
+      setAlbumResults((data.albumList2?.album || []).map(normalizeAlbum))
+      setArtistResults([])
+      setPlaylistView(null)
+      setViewStack([])
+      setResultTitle(title)
+      setStatus("")
+    } catch (err) {
+      setStatus(err.message)
+    }
+  }
+
+  function showRandomAlbums() {
+    return showAlbumCollection("random", "Random Albums")
+  }
+
+  function showRecentAlbums() {
+    return showAlbumCollection("newest", "Recently Added")
+  }
+
   async function showAlbumResult(album) {
     pushCurrentView({ restoreAlbumId: album.id })
     try {
@@ -1802,8 +1826,13 @@ function App() {
             }}
           />
         </div>
-        <div className="clock">
-          {formatTime(time.current)} / {formatTime(time.duration || currentSong?.duration || 0)}
+        <div className="playerActions">
+          <button className="secondaryButton settingsButton" type="button" onClick={() => setMenu({ type: "user" })}>
+            Settings
+          </button>
+          <div className="clock">
+            {formatTime(time.current)} / {formatTime(time.duration || currentSong?.duration || 0)}
+          </div>
         </div>
       </header>
 
@@ -1850,18 +1879,15 @@ function App() {
             <button type="button" onClick={showAllPlaylists}>Playlists</button>
           </div>
         )}
-        <button className="likedButton" type="button" onClick={showLikedSongs} aria-label="Liked songs" title="Liked songs">
-          <Heart size={28} />
-        </button>
-        <button className="randomButton" type="button" onClick={randomPlay}>
-          <Shuffle size={24} />
-          Random
-        </button>
-        <div className="userButtonSlot">
-          <button className="secondaryButton userButton" type="button" onClick={() => setMenu({ type: "user" })}>
-            {auth.username || auth.name}
-          </button>
-        </div>
+        {!playlistView && (
+          <>
+            <button className="likedButton" type="button" onClick={showLikedSongs} aria-label="Liked songs" title="Liked songs">
+              <Heart size={28} />
+            </button>
+            <button className="randomButton" type="button" onClick={showRandomAlbums}>Random</button>
+            <button className="recentButton" type="button" onClick={showRecentAlbums}>Recent</button>
+          </>
+        )}
       </section>
 
       <section className="content">
@@ -2242,7 +2268,7 @@ function ActionMenu({
     : menu.type === "results"
       ? resultTitle
       : menu.type === "user"
-        ? "Username"
+        ? "Settings"
         : menu.type === "albumLetters"
           ? "Jump to album letter"
           : menu.type === "artistLetters"

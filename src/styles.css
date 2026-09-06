@@ -196,10 +196,31 @@ input {
   text-align: right;
 }
 
+.playerActions {
+  min-width: 0;
+  align-self: stretch;
+  display: grid;
+  grid-template-rows: 35px 1fr;
+  gap: 4px;
+  padding-bottom: 8px;
+}
+
+.settingsButton {
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 18px;
+}
+
+.playerActions .clock {
+  align-self: end;
+  padding-bottom: 2px;
+}
+
 .searchBar {
   height: 84px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 112px 120px;
+  grid-template-columns: minmax(0, 1fr) 64px 112px 112px;
   gap: 10px;
   align-items: center;
   padding: 12px 14px;
@@ -209,7 +230,7 @@ input {
 .quickButtons {
   grid-column: 1;
   display: grid;
-  grid-template-columns: 58px repeat(3, minmax(88px, 1fr));
+  grid-template-columns: 58px repeat(3, 112px);
   gap: 8px;
 }
 
@@ -237,7 +258,8 @@ input {
   padding: 0;
 }
 
-.randomButton {
+.randomButton,
+.recentButton {
   min-width: 112px;
 }
 
@@ -274,7 +296,7 @@ input {
 
 .backToResults {
   grid-column: 1;
-  width: min(320px, 100%);
+  width: min(240px, 100%);
   justify-self: start;
 }
 
@@ -452,15 +474,6 @@ h3 {
 .inlineHeart {
   color: var(--liked);
   vertical-align: -2px;
-}
-
-.userButton {
-  width: 100%;
-  text-transform: none;
-}
-
-.userButtonSlot {
-  grid-column: 4;
 }
 
 .historyRow {
@@ -768,7 +781,7 @@ h3 {
   }
 
   .quickButtons {
-    grid-template-columns: 54px repeat(3, minmax(82px, 1fr));
+    grid-template-columns: 54px repeat(3, 104px);
     gap: 8px;
   }
 
@@ -777,7 +790,8 @@ h3 {
     width: 58px;
   }
 
-  .randomButton {
+  .randomButton,
+  .recentButton {
     min-width: 104px;
   }
 
