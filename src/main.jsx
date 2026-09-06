@@ -6,7 +6,6 @@ import {
   EyeOff,
   Heart,
   ListMusic,
-  ListPlus,
   LogOut,
   MoreVertical,
   Pause,
@@ -787,15 +786,6 @@ function App() {
     startPlaybackQueue(songs, songIndex)
   }
 
-  function addToHistory(song) {
-    setHistory((items) => {
-      const nextItems = [...items, song]
-      if (currentIndex < 0) setCurrentIndex(0)
-      return nextItems
-    })
-    setStatus(`Added to history: ${song.title}`)
-  }
-
   function insertAfterCurrent(song) {
     setHistory((items) => {
       const index = currentIndex >= 0 ? currentIndex : -1
@@ -1013,13 +1003,18 @@ function App() {
     }
   }
 
-  async function toggleStar() {
-    if (!currentSong) return
+  async function toggleStar(song) {
+    if (!song) return
     try {
-      await subsonic(currentSong.starred ? "unstar" : "star", { id: currentSong.id }, auth)
-      const update = (item) => (item.id === currentSong.id ? { ...item, starred: !currentSong.starred } : item)
+      await subsonic(song.starred ? "unstar" : "star", { id: song.id }, auth)
+      const update = (item) => (item.id === song.id ? { ...item, starred: !song.starred } : item)
       setSongs((items) => items.map(update))
       setHistory((items) => items.map(update))
+      setPlaybackQueue((items) => items.map(update))
+      playbackQueueRef.current = {
+        ...playbackQueueRef.current,
+        songs: playbackQueueRef.current.songs.map(update),
+      }
     } catch (err) {
       setStatus(err.message)
     }
@@ -1660,10 +1655,6 @@ function App() {
             }}
           />
         </div>
-        <button className={currentSong?.starred ? "likeNow liked" : "likeNow"} type="button" onClick={toggleStar}>
-          <Heart size={28} fill={currentSong?.starred ? "currentColor" : "none"} />
-          Like
-        </button>
         <div className="clock">
           {formatTime(time.current)} / {formatTime(time.duration || currentSong?.duration || 0)}
         </div>
@@ -1766,7 +1757,7 @@ function App() {
                       : ""
                 }
                 onPlay={() => playQueuedSongs(song)}
-                onQueue={() => addToHistory(song)}
+                onFavorite={() => toggleStar(song)}
                 onMove={movePlaylistItem}
                 onPointerDragStart={(event) => beginPlaylistDrag(index, event)}
                 onMenu={() => {
@@ -1841,7 +1832,7 @@ function SongRow({
   dragging,
   dropPosition,
   onPlay,
-  onQueue,
+  onFavorite,
   onMove,
   onPointerDragStart,
   onMenu,
@@ -1892,13 +1883,16 @@ function SongRow({
         </strong>
         <span>{song.artist}</span>
       </button>
-      <button className="actionButton" type="button" onClick={onQueue}>
-        <ListPlus size={28} />
-        Append
+      <button
+        className={song.starred ? "trackIconButton favoriteAction liked" : "trackIconButton favoriteAction"}
+        type="button"
+        onClick={onFavorite}
+        aria-label={song.starred ? "Remove from favourites" : "Add to favourites"}
+      >
+        <Heart size={28} fill={song.starred ? "currentColor" : "none"} />
       </button>
-      <button className="actionButton" type="button" onClick={onMenu} onPointerDown={longPress(onMenu)}>
+      <button className="trackIconButton moreButton" type="button" onClick={onMenu} onPointerDown={longPress(onMenu)} aria-label="Track actions">
         <MoreVertical size={28} />
-        More
       </button>
     </article>
   )

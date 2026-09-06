@@ -120,42 +120,39 @@ input {
 }
 
 .playerBar {
-  height: 92px;
+  height: 112px;
   display: grid;
-  grid-template-columns: 316px minmax(0, 1fr) 112px 150px;
+  grid-template-columns: 304px minmax(0, 1fr) 150px;
   gap: 16px;
   align-items: center;
-  padding: 10px 14px;
+  padding: 12px 14px 18px;
   border-bottom: 1px solid var(--border);
   background: var(--panel-strong);
 }
 
 .transportControls {
   display: grid;
-  grid-template-columns: 92px 104px 92px;
+  grid-template-columns: repeat(3, 92px);
   gap: 14px;
   align-items: center;
 }
 
 .iconButton,
-.playButton,
-.likeNow {
+.playButton {
   display: grid;
   place-items: center;
 }
 
+.transportControls > button {
+  width: 92px;
+  min-width: 92px;
+  min-height: 64px;
+  height: 64px;
+}
+
 .playButton {
-  background: var(--button-strong);
-  color: var(--button-strong-text);
-}
-
-.likeNow {
-  gap: 2px;
-  font-size: 14px;
-}
-
-.liked {
-  color: var(--liked);
+  background: var(--button);
+  color: var(--text);
 }
 
 .nowPlaying {
@@ -277,6 +274,8 @@ input {
 
 .backToResults {
   grid-column: 1;
+  width: min(320px, 100%);
+  justify-self: start;
 }
 
 .content {
@@ -346,7 +345,7 @@ h3 {
 .songRow {
   min-height: 84px;
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) 126px 116px;
+  grid-template-columns: 72px minmax(0, 1fr) 72px 60px;
   gap: 10px;
   align-items: center;
   padding: 8px 10px;
@@ -354,7 +353,7 @@ h3 {
 }
 
 .songRow.playlistSongRow {
-  grid-template-columns: 42px 72px minmax(0, 1fr) 126px 116px;
+  grid-template-columns: 42px 72px minmax(0, 1fr) 72px 60px;
 }
 
 .songRow.dragging {
@@ -401,8 +400,16 @@ h3 {
   text-align: left;
 }
 
-.actionButton {
-  padding: 0 10px;
+.trackIconButton {
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+.favoriteAction.liked {
+  color: var(--liked);
 }
 
 .wideAction {
@@ -691,14 +698,21 @@ h3 {
 
 @media (max-height: 620px) {
   .playerBar {
-    height: 82px;
-    grid-template-columns: 292px minmax(0, 1fr) 100px 120px;
-    padding: 8px 12px;
+    height: 100px;
+    grid-template-columns: 280px minmax(0, 1fr) 120px;
+    padding: 8px 12px 14px;
   }
 
   .transportControls {
-    grid-template-columns: 82px 96px 82px;
+    grid-template-columns: repeat(3, 84px);
     gap: 12px;
+  }
+
+  .transportControls > button {
+    width: 84px;
+    min-width: 84px;
+    min-height: 60px;
+    height: 60px;
   }
 
   .searchBar {
