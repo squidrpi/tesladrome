@@ -164,7 +164,7 @@ input {
 
 .nowPlaying strong,
 .songText strong,
-.verlaufItem strong {
+.historyItem strong {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -175,7 +175,7 @@ input {
 
 .nowPlaying span,
 .songText span,
-.verlaufItem span,
+.historyItem span,
 .sectionHeader span,
 .status {
   display: block;
@@ -265,7 +265,7 @@ input {
 }
 
 .results,
-.verlauf {
+.history {
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -308,7 +308,7 @@ h3 {
 }
 
 .songList,
-.verlaufList {
+.historyList {
   overflow-y: auto;
 }
 
@@ -316,7 +316,7 @@ h3 {
   height: calc(100% - 76px);
 }
 
-.verlaufList {
+.historyList {
   height: calc(100% - 76px);
   padding-bottom: 10px;
 }
@@ -401,7 +401,7 @@ h3 {
   grid-column: 7;
 }
 
-.verlaufRow {
+.historyRow {
   width: calc(100% - 20px);
   min-height: 72px;
   display: grid;
@@ -414,20 +414,20 @@ h3 {
   background: var(--button);
 }
 
-.verlaufRow.active {
+.historyRow.active {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent), transparent 82%);
 }
 
-.verlaufRow.dragging {
+.historyRow.dragging {
   opacity: 0.38;
 }
 
-.verlaufRow.dropBefore {
+.historyRow.dropBefore {
   box-shadow: 0 -5px 0 var(--accent);
 }
 
-.verlaufRow.dropAfter {
+.historyRow.dropAfter {
   box-shadow: 0 5px 0 var(--accent);
 }
 
@@ -447,7 +447,7 @@ h3 {
   align-self: stretch;
 }
 
-.verlaufItem {
+.historyItem {
   min-width: 0;
   width: 100%;
   padding: 8px 12px;
@@ -457,7 +457,7 @@ h3 {
   text-align: left;
 }
 
-.verlaufMenuButton {
+.historyMenuButton {
   min-width: 52px;
   padding: 0;
   border: 0;
