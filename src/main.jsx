@@ -1676,7 +1676,7 @@ function App() {
             Back
           </button>
         ) : searchMode === "search" ? (
-          <>
+          <div className="searchControls">
             <Search size={30} />
             <div className="searchField">
               <input
@@ -1701,7 +1701,7 @@ function App() {
               <ArrowLeft size={24} />
               Back
             </button>
-          </>
+          </div>
         ) : (
           <div className="quickButtons">
             <button type="button" onClick={() => setSearchMode("search")} aria-label="Search">
@@ -1712,11 +1712,10 @@ function App() {
             <button type="button" onClick={showAllPlaylists}>Playlists</button>
           </div>
         )}
-        <button type="button" onClick={showLikedSongs}>
-          <Heart size={24} />
-          Liked
+        <button className="likedButton" type="button" onClick={showLikedSongs} aria-label="Liked songs" title="Liked songs">
+          <Heart size={28} />
         </button>
-        <button type="button" onClick={randomPlay}>
+        <button className="randomButton" type="button" onClick={randomPlay}>
           <Shuffle size={24} />
           Random
         </button>
@@ -1778,51 +1777,6 @@ function App() {
             ))}
           </div>
         </div>
-
-        <aside className="history">
-          <button
-            className="sectionHeader buttonHeader"
-            type="button"
-            onClick={() => {
-              setMenu({ type: "history" })
-              loadPlaylists()
-            }}
-          >
-            <h2>History</h2>
-            <span>
-              {Math.max(0, currentIndex)} played / {futureCount} upcoming
-            </span>
-          </button>
-          <div className="historyList">
-            {history.map((song, index) => (
-              <HistoryRow
-                ref={index === currentIndex ? currentRowRef : null}
-                key={`${song.id}-${index}`}
-                song={song}
-                index={index}
-                active={index === currentIndex}
-                dragging={dragState?.type === "history" && dragState.fromIndex === index}
-                dropPosition={
-                  dragState?.type === "history" && dragState.insertIndex === index
-                    ? "before"
-                    : dragState?.type === "history" && dragState.insertIndex === history.length && index === history.length - 1
-                      ? "after"
-                      : ""
-                }
-                onClick={() => {
-                  if (index !== currentIndex) markCurrentSongSkip()
-                  setCurrentIndex(index)
-                }}
-                onMove={moveHistoryItem}
-                onPointerDragStart={(event) => beginHistoryDrag(index, event)}
-                onMenu={() => {
-                  setMenu({ type: "historySong", song, index })
-                  loadPlaylists()
-                }}
-              />
-            ))}
-          </div>
-        </aside>
       </section>
 
       {menu && (
