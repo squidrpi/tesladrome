@@ -30,8 +30,8 @@ const USER_PROFILES_KEY = "teslaNavidromeUserProfiles"
 const CURRENT_AUTH_KEY = "teslaNavidromeCurrentAuth"
 const MIN_FUTURE = 8
 const MAX_HISTORY = 200
-const ALBUM_PAGE_SIZE = 10
-const ARTIST_PAGE_SIZE = 10
+const ALBUM_PAGE_SIZE = 4
+const ARTIST_PAGE_SIZE = 4
 const ALBUM_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")
 
 function emptyAuthState() {
@@ -453,7 +453,9 @@ function App() {
       }
 
       albumLoadRef.current = false
-      await loadAlbumPage(Math.floor(matchOffset / ALBUM_PAGE_SIZE) * ALBUM_PAGE_SIZE, totalSize)
+      // Start this page at the match itself, so the selected letter is the
+      // first visible album rather than appearing at the bottom of a page.
+      await loadAlbumPage(matchOffset, totalSize)
     } catch (err) {
       setStatus(err.message)
       setAlbumPage((page) => ({ ...page, loading: false }))
@@ -507,7 +509,9 @@ function App() {
       )
 
       artistLoadRef.current = false
-      await loadArtistPage(Math.floor(Math.max(0, matchOffset) / ARTIST_PAGE_SIZE) * ARTIST_PAGE_SIZE)
+      // Start this page at the matching artist for the same top-of-page
+      // behavior as the Albums browser.
+      await loadArtistPage(Math.max(0, matchOffset))
     } catch (err) {
       setStatus(err.message)
       setArtistPage((page) => ({ ...page, loading: false }))
