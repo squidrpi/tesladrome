@@ -32,7 +32,7 @@ const MIN_FUTURE = 8
 const MAX_HISTORY = 200
 const ALBUM_PAGE_SIZE = 4
 const ARTIST_PAGE_SIZE = 4
-const ALBUM_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")
+const ALBUM_LETTERS = ["0", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
 
 function emptyAuthState() {
   return {
@@ -432,7 +432,7 @@ function App() {
 
       let low = 0
       let high = totalSize - 1
-      let matchOffset = totalSize - 1
+      let matchOffset = letter === "0" ? -1 : totalSize - 1
 
       // Find the first alphabetically matching album without retaining the
       // intermediate records in the browser.
@@ -444,18 +444,25 @@ function App() {
           auth,
         )
         const name = normalizeAlbum(data.albumList2?.album?.[0] || {}).name.trim()
-        if (name.localeCompare(letter, undefined, { sensitivity: "base" }) < 0) {
-          low = midpoint + 1
-        } else {
+        if (letter === "0" && /^\d/.test(name)) {
           matchOffset = midpoint
           high = midpoint - 1
+        } else if (letter !== "0" && name.localeCompare(letter, undefined, { sensitivity: "base" }) < 0) {
+          low = midpoint + 1
+        } else {
+          if (letter !== "0") {
+            matchOffset = midpoint
+            high = midpoint - 1
+          } else {
+            low = midpoint + 1
+          }
         }
       }
 
       albumLoadRef.current = false
       // Start this page at the match itself, so the selected letter is the
       // first visible album rather than appearing at the bottom of a page.
-      await loadAlbumPage(matchOffset, totalSize)
+      await loadAlbumPage(Math.max(0, matchOffset), totalSize)
     } catch (err) {
       setStatus(err.message)
       setAlbumPage((page) => ({ ...page, loading: false }))
@@ -505,7 +512,10 @@ function App() {
     try {
       if (!artistCatalogRef.current.length) await loadArtistCatalog()
       const matchOffset = artistCatalogRef.current.findIndex(
-        (artist) => artist.name.localeCompare(letter, undefined, { sensitivity: "base" }) >= 0,
+        (artist) =>
+          letter === "0"
+            ? /^\d/.test(artist.name.trim())
+            : artist.name.localeCompare(letter, undefined, { sensitivity: "base" }) >= 0,
       )
 
       artistLoadRef.current = false
