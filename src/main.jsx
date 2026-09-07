@@ -196,7 +196,6 @@ function normalizeSong(song) {
     artistId: song.artistId || "",
     duration: song.duration || 0,
     coverArt: song.coverArt,
-    starred: Boolean(song.starred),
   }
 }
 
@@ -218,6 +217,7 @@ function normalizeAlbum(album) {
     artist: album.artist || album.albumArtist || "",
     songCount: album.songCount || 0,
     coverArt: album.coverArt,
+    starred: Boolean(album.starred),
   }
 }
 
@@ -1297,18 +1297,14 @@ function App() {
     }
   }
 
-  async function toggleStar(song) {
-    if (!song) return
+  async function toggleAlbumFavourite() {
+    if (playlistView?.type !== "album") return
     try {
-      await subsonic(song.starred ? "unstar" : "star", { id: song.id }, auth)
-      const update = (item) => (item.id === song.id ? { ...item, starred: !song.starred } : item)
-      setSongs((items) => items.map(update))
-      setHistory((items) => items.map(update))
-      setPlaybackQueue((items) => items.map(update))
-      playbackQueueRef.current = {
-        ...playbackQueueRef.current,
-        songs: playbackQueueRef.current.songs.map(update),
-      }
+      const isFavourite = Boolean(playlistView.starred)
+      await subsonic(isFavourite ? "unstar" : "star", { id: playlistView.id }, auth)
+      const update = (album) => (album.id === playlistView.id ? { ...album, starred: !isFavourite } : album)
+      setPlaylistView((view) => (view?.id === playlistView.id ? { ...view, starred: !isFavourite } : view))
+      setAlbumResults((albums) => albums.map(update))
     } catch (err) {
       setStatus(err.message)
     }
@@ -1333,18 +1329,18 @@ function App() {
     }
   }
 
-  async function showLikedSongs() {
+  async function showFavouriteAlbums() {
     try {
-      setStatus("Loading liked songs...")
+      setStatus("Loading favourite albums...")
       const data = await subsonic("getStarred2", {}, auth)
-      const likedSongs = (data.starred2?.song || []).map(normalizeSong)
-      setSongs(likedSongs)
+      const favouriteAlbums = (data.starred2?.album || []).map(normalizeAlbum)
+      setSongs([])
       setPlaylistResults([])
-      setAlbumResults([])
+      setAlbumResults(favouriteAlbums)
       setArtistResults([])
       setPlaylistView(null)
       setViewStack([])
-      setResultTitle("Liked")
+      setResultTitle("Favourite Albums")
       setStatus("")
     } catch (err) {
       setStatus(err.message)
@@ -1438,6 +1434,7 @@ function App() {
         type: "album",
         id: album.id,
         name: album.name,
+        starred: Boolean(data.album?.starred ?? album.starred),
         previousSongs: songs,
         previousPlaylists: playlistResults,
         previousAlbums: albumResults,
@@ -1473,6 +1470,7 @@ function App() {
         type: "album",
         id: song.albumId,
         name: song.album || "Album",
+        starred: Boolean(data.album?.starred),
         previousSongs: songs,
         previousPlaylists: playlistResults,
         previousAlbums: albumResults,
@@ -1975,6 +1973,16 @@ function App() {
               <ArrowLeft size={30} />
               Back
             </button>
+            {playlistView.type === "album" && (
+              <button
+                className={playlistView.starred ? "albumFavouriteButton liked" : "albumFavouriteButton"}
+                type="button"
+                onClick={toggleAlbumFavourite}
+                aria-label={playlistView.starred ? "Remove album from favourites" : "Add album to favourites"}
+              >
+                <Heart size={28} fill={playlistView.starred ? "currentColor" : "none"} />
+              </button>
+            )}
             {["album", "playlist"].includes(playlistView.type) && (
               <button className="albumShuffleButton" type="button" onClick={shuffleCollectionTracks}>
                 Shuffle
@@ -2020,7 +2028,7 @@ function App() {
         )}
         {!playlistView && (
           <>
-            <button className="likedButton" type="button" onClick={showLikedSongs} aria-label="Liked songs" title="Liked songs">
+            <button className="likedButton" type="button" onClick={showFavouriteAlbums} aria-label="Favourite albums" title="Favourite albums">
               <Heart size={28} />
             </button>
             <button className="randomButton" type="button" onClick={showRandomAlbums}>Random</button>
@@ -2041,7 +2049,7 @@ function App() {
                   disabled={albumPage.offset === 0 || albumPage.loading}
                 >
                   <ArrowLeft size={24} />
-                  Previous
+                  Prev
                 </button>
                 <button type="button" onClick={() => setMenu({ type: "albumLetters" })} disabled={albumPage.loading}>
                   A-Z
@@ -2120,7 +2128,6 @@ function App() {
                       : ""
                 }
                 onPlay={() => playQueuedSongs(song)}
-                onFavorite={() => toggleStar(song)}
                 onMove={movePlaylistItem}
                 onPointerDragStart={(event) => beginPlaylistDrag(index, event)}
                 onMenu={() => {
@@ -2197,7 +2204,6 @@ function SongRow({
   dragging,
   dropPosition,
   onPlay,
-  onFavorite,
   onMove,
   onPointerDragStart,
   onMenu,
@@ -2244,18 +2250,8 @@ function SongRow({
         {coverUrl ? <img src={coverUrl} alt="" /> : <Play size={34} />}
       </button>
       <button className="songText" type="button" onClick={onPlay}>
-        <strong>
-          {song.starred && <Heart className="inlineHeart" size={20} fill="currentColor" />} {song.title}
-        </strong>
+        <strong>{song.title}</strong>
         <span>{song.artist}</span>
-      </button>
-      <button
-        className={song.starred ? "trackIconButton favoriteAction liked" : "trackIconButton favoriteAction"}
-        type="button"
-        onClick={onFavorite}
-        aria-label={song.starred ? "Remove from favourites" : "Add to favourites"}
-      >
-        <Heart size={28} fill={song.starred ? "currentColor" : "none"} />
       </button>
       <button className="trackIconButton moreButton" type="button" onClick={onMenu} onPointerDown={longPress(onMenu)} aria-label="Track actions">
         <MoreVertical size={28} />

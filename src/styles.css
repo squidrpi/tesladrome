@@ -311,6 +311,21 @@ input {
   margin-left: auto;
 }
 
+.albumFavouriteButton {
+  min-width: 64px;
+  width: 64px;
+  padding: 0;
+  margin-left: auto;
+}
+
+.albumFavouriteButton.liked {
+  color: var(--liked);
+}
+
+.albumFavouriteButton + .albumShuffleButton {
+  margin-left: 10px;
+}
+
 .content {
   min-height: 0;
   flex: 1;
@@ -378,9 +393,9 @@ h3 {
 }
 
 .albumPager {
-  width: min(430px, 62%);
+  width: 352px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, 112px);
   gap: 8px;
 }
 
@@ -411,7 +426,7 @@ h3 {
 .songRow {
   min-height: 84px;
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) 72px 60px;
+  grid-template-columns: 72px minmax(0, 1fr) 60px;
   gap: 10px;
   align-items: center;
   padding: 8px 10px;
@@ -419,7 +434,7 @@ h3 {
 }
 
 .songRow.playlistSongRow {
-  grid-template-columns: 42px 72px minmax(0, 1fr) 72px 60px;
+  grid-template-columns: 42px 72px minmax(0, 1fr) 60px;
 }
 
 .songRow.dragging {
@@ -472,10 +487,6 @@ h3 {
   padding: 0;
   display: grid;
   place-items: center;
-}
-
-.favoriteAction.liked {
-  color: var(--liked);
 }
 
 .wideAction {
@@ -799,6 +810,11 @@ h3 {
   .quickButtons {
     grid-template-columns: 54px repeat(3, 104px);
     gap: 8px;
+  }
+
+  .albumPager {
+    width: 328px;
+    grid-template-columns: repeat(3, 104px);
   }
 
   .likedButton {
