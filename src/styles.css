@@ -206,10 +206,12 @@ input {
 }
 
 .settingsButton {
+  width: 75%;
   min-width: 0;
   min-height: 32px;
   padding: 0 12px;
   font-size: 18px;
+  justify-self: end;
 }
 
 .playerActions .clock {
@@ -625,6 +627,11 @@ h3 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 76px;
   gap: 10px;
+}
+
+.passwordField button {
+  min-width: 0;
+  width: 100%;
 }
 
 .loginPanel button[type="submit"] {

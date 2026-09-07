@@ -333,7 +333,6 @@ function App() {
   const pendingSeekRef = useRef(savedState?.position || 0)
   const didRestorePositionRef = useRef(false)
   const didLoadInitialResultsRef = useRef(false)
-  const randomRefillRunning = useRef(false)
   const skipStatsRef = useRef(loadSkipStats())
   const playStartRef = useRef({ songId: "", startedAt: 0, duration: 0 })
   const scrollAlbumTrackRef = useRef(false)
@@ -554,18 +553,12 @@ function App() {
 
   function getNextSongForHandoff() {
     const orderedQueue = playbackQueueRef.current
-    if (orderedQueue.isOrderedPlayback) {
-      return orderedQueue.songs[orderedQueue.index + 1] || null
-    }
-    return history[currentIndex + 1] || null
+    return orderedQueue.isOrderedPlayback ? orderedQueue.songs[orderedQueue.index + 1] || null : null
   }
 
   function getPreviousSongForHandoff() {
     const orderedQueue = playbackQueueRef.current
-    if (orderedQueue.isOrderedPlayback) {
-      return orderedQueue.songs[orderedQueue.index - 1] || null
-    }
-    return history[currentIndex - 1] || null
+    return orderedQueue.isOrderedPlayback ? orderedQueue.songs[orderedQueue.index - 1] || null : null
   }
 
   function getPreparedPlayer(songId) {
@@ -583,6 +576,8 @@ function App() {
       !preparedAudio ||
       preparedAudio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
     ) return false
+
+    if (!playbackQueueRef.current.isOrderedPlayback) return false
 
     handoffRef.current = { songId: targetSong.id, player: targetPlayer, fromPlayer: activePlayer }
     try {
@@ -610,11 +605,6 @@ function App() {
         const nextIndex = orderedQueue.index + direction
         playbackQueueRef.current = { ...orderedQueue, index: nextIndex }
         setPlaybackQueueIndex(nextIndex)
-      } else {
-        const nextIndex = currentIndex + direction
-        setCurrentIndex(nextIndex)
-        const futureCount = Math.max(0, history.length - nextIndex - 1)
-        if (futureCount < MIN_FUTURE) addRandomFuture(MIN_FUTURE - futureCount)
       }
       return true
     } catch {
@@ -622,27 +612,6 @@ function App() {
       return false
     }
   }
-
-  const addRandomFuture = useCallback(
-    async (count = MIN_FUTURE) => {
-      if (!canUseApi || randomRefillRunning.current) return []
-      randomRefillRunning.current = true
-      try {
-        const data = await subsonic("getRandomSongs", { size: count }, auth)
-        const randomSongs = (data.randomSongs?.song || []).map(normalizeSong)
-        if (randomSongs.length) {
-          setHistory((items) => [...items, ...randomSongs])
-        }
-        return randomSongs
-      } catch (err) {
-        setStatus(err.message)
-        return []
-      } finally {
-        randomRefillRunning.current = false
-      }
-    },
-    [auth, canUseApi],
-  )
 
   function recordSkip(songId, playedSeconds, durationSeconds) {
     if (!songId || !Number.isFinite(playedSeconds) || !Number.isFinite(durationSeconds) || durationSeconds <= 0) return
@@ -689,24 +658,7 @@ function App() {
       return
     }
 
-    // Normal/radio playback uses the random/history queue.
-    markCurrentSongSkip()
-    const currentFutureCount = Math.max(0, history.length - currentIndex - 1)
-    const added = currentIndex >= 0 && currentFutureCount < MIN_FUTURE
-      ? await addRandomFuture(MIN_FUTURE - currentFutureCount)
-      : []
-    const availableLength = history.length + added.length
-    if (playlistView?.type === "album") scrollAlbumTrackRef.current = true
-    setCurrentIndex((idx) => {
-      if (idx < 0) return idx
-      return Math.min(availableLength - 1, idx + 1)
-    })
-  }, [
-    addRandomFuture,
-    currentIndex,
-    currentSong,
-    history.length,
-  ])
+  }, [currentSong])
 
   const previous = useCallback(() => {
     const audio = getActiveAudio()
@@ -725,34 +677,16 @@ function App() {
     }
 
     moveToPreviousTrack()
-  }, [
-    addRandomFuture,
-    currentIndex,
-    currentSong,
-    history.length,
-  ])
+  }, [currentSong])
 
   function moveToPreviousTrack() {
-
-    markCurrentSongSkip()
-
     const orderedQueue = playbackQueueRef.current
-    if (orderedQueue.isOrderedPlayback) {
-      if (orderedQueue.songs.length && orderedQueue.index > 0) {
-        const previousIndex = orderedQueue.index - 1
-        if (playlistView?.type === "album") scrollAlbumTrackRef.current = true
-        playbackQueueRef.current = { ...orderedQueue, index: previousIndex }
-        setPlaybackQueueIndex(previousIndex)
-      }
-      return
-    }
-
-    const currentFutureCount = Math.max(0, history.length - currentIndex - 1)
-    if (currentIndex >= 0 && currentFutureCount < MIN_FUTURE) {
-      addRandomFuture(MIN_FUTURE - currentFutureCount)
-    }
-    if (playlistView?.type === "album" && currentIndex > 0) scrollAlbumTrackRef.current = true
-    setCurrentIndex((idx) => Math.max(0, idx - 1))
+    if (!orderedQueue.isOrderedPlayback || !orderedQueue.songs.length || orderedQueue.index <= 0) return
+    markCurrentSongSkip()
+    const previousIndex = orderedQueue.index - 1
+    if (playlistView?.type === "album") scrollAlbumTrackRef.current = true
+    playbackQueueRef.current = { ...orderedQueue, index: previousIndex }
+    setPlaybackQueueIndex(previousIndex)
   }
 
   const togglePlayback = useCallback(async () => {
@@ -1030,7 +964,7 @@ function App() {
       audio.removeEventListener("pause", onPause)
       if (handoffTimer) window.clearTimeout(handoffTimer)
     }
-  }, [activePlayer, addRandomFuture, currentIndex, currentSong?.duration, currentSong?.id, history, next, playbackQueueIndex])
+  }, [activePlayer, currentIndex, currentSong?.duration, currentSong?.id, history, next, playbackQueueIndex])
 
   useEffect(() => {
     const previousSong = playStartRef.current
