@@ -20,13 +20,13 @@ import {
 } from "lucide-react"
 import "./styles.css"
 
-const CLIENT = "TeslaNavidrome"
+const CLIENT = "Tesladrome"
 const API_VERSION = "1.16.1"
-const STORAGE_KEY = "teslaNavidromeState"
-const THEME_KEY = "teslaNavidromeTheme"
-const SKIP_STATS_KEY = "teslaNavidromeSkipStats"
-const USER_PROFILES_KEY = "teslaNavidromeUserProfiles"
-const CURRENT_AUTH_KEY = "teslaNavidromeCurrentAuth"
+const STORAGE_KEY = "tesladromeState"
+const THEME_KEY = "tesladromeTheme"
+const SKIP_STATS_KEY = "tesladromeSkipStats"
+const USER_PROFILES_KEY = "tesladromeUserProfiles"
+const CURRENT_AUTH_KEY = "tesladromeCurrentAuth"
 const MIN_FUTURE = 8
 const MAX_HISTORY = 200
 const ALBUM_PAGE_SIZE = 4
@@ -177,6 +177,15 @@ function formatTime(seconds) {
   return `${mins}:${String(secs).padStart(2, "0")}`
 }
 
+function usableDuration(value) {
+  const duration = Number(value)
+  return Number.isFinite(duration) && duration > 0 ? duration : 0
+}
+
+function playbackDuration(audio, song) {
+  return usableDuration(audio?.duration) || usableDuration(song?.duration)
+}
+
 function normalizeSong(song) {
   return {
     id: song.id,
@@ -315,7 +324,10 @@ function App() {
   const [dragState, setDragState] = useState(null)
   const [albumPage, setAlbumPage] = useState({ offset: 0, totalSize: 0, hasNext: false, loading: false })
   const [artistPage, setArtistPage] = useState({ offset: 0, hasNext: false, loading: false })
-  const audioRef = useRef(null)
+  const audioPlayersRef = useRef([null, null, null])
+  const [activePlayer, setActivePlayer] = useState(0)
+  const preparedSongIdsRef = useRef(["", "", ""])
+  const handoffRef = useRef(null)
   const searchInputRef = useRef(null)
   const currentRowRef = useRef(null)
   const pendingSeekRef = useRef(savedState?.position || 0)
@@ -324,10 +336,16 @@ function App() {
   const randomRefillRunning = useRef(false)
   const skipStatsRef = useRef(loadSkipStats())
   const playStartRef = useRef({ songId: "", startedAt: 0, duration: 0 })
+  const scrollAlbumTrackRef = useRef(false)
+  const scrollAlbumListToTopRef = useRef(false)
   const playbackQueueRef = useRef({ songs: [], index: -1, isOrderedPlayback: false })
   const albumLoadRef = useRef(false)
   const artistLoadRef = useRef(false)
   const artistCatalogRef = useRef([])
+
+  function getActiveAudio() {
+    return audioPlayersRef.current[activePlayer]
+  }
 
   const playbackQueueActive = playbackQueue.length > 0 && playbackQueueIndex >= 0
   const currentSong = playbackQueueActive
@@ -534,6 +552,77 @@ function App() {
     return subsonicUrl("stream", { id: currentSong.id, maxBitRate: 320 }, auth)
   }, [auth, canUseApi, currentSong])
 
+  function getNextSongForHandoff() {
+    const orderedQueue = playbackQueueRef.current
+    if (orderedQueue.isOrderedPlayback) {
+      return orderedQueue.songs[orderedQueue.index + 1] || null
+    }
+    return history[currentIndex + 1] || null
+  }
+
+  function getPreviousSongForHandoff() {
+    const orderedQueue = playbackQueueRef.current
+    if (orderedQueue.isOrderedPlayback) {
+      return orderedQueue.songs[orderedQueue.index - 1] || null
+    }
+    return history[currentIndex - 1] || null
+  }
+
+  function getPreparedPlayer(songId) {
+    return preparedSongIdsRef.current.findIndex((preparedId, index) => index !== activePlayer && preparedId === songId)
+  }
+
+  async function handOffToPreparedTrack(targetSong, direction, markAsSkipped = false) {
+    const targetPlayer = getPreparedPlayer(targetSong?.id)
+    const currentAudio = getActiveAudio()
+    const preparedAudio = audioPlayersRef.current[targetPlayer]
+    if (
+      handoffRef.current ||
+      targetPlayer < 0 ||
+      !currentAudio ||
+      !preparedAudio ||
+      preparedAudio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA
+    ) return false
+
+    handoffRef.current = { songId: targetSong.id, player: targetPlayer, fromPlayer: activePlayer }
+    try {
+      await preparedAudio.play()
+      if (markAsSkipped) markCurrentSongSkip()
+      currentAudio.pause()
+      playStartRef.current = {
+        songId: targetSong.id,
+        startedAt: preparedAudio.currentTime || 0,
+        duration: playbackDuration(preparedAudio, targetSong),
+      }
+      setTime({
+        current: preparedAudio.currentTime || 0,
+        duration: playbackDuration(preparedAudio, targetSong),
+      })
+      setIsPlaying(true)
+      setActivePlayer(targetPlayer)
+
+      if (markAsSkipped && playlistView?.type === "album") {
+        scrollAlbumTrackRef.current = true
+      }
+
+      const orderedQueue = playbackQueueRef.current
+      if (orderedQueue.isOrderedPlayback) {
+        const nextIndex = orderedQueue.index + direction
+        playbackQueueRef.current = { ...orderedQueue, index: nextIndex }
+        setPlaybackQueueIndex(nextIndex)
+      } else {
+        const nextIndex = currentIndex + direction
+        setCurrentIndex(nextIndex)
+        const futureCount = Math.max(0, history.length - nextIndex - 1)
+        if (futureCount < MIN_FUTURE) addRandomFuture(MIN_FUTURE - futureCount)
+      }
+      return true
+    } catch {
+      handoffRef.current = null
+      return false
+    }
+  }
+
   const addRandomFuture = useCallback(
     async (count = MIN_FUTURE) => {
       if (!canUseApi || randomRefillRunning.current) return []
@@ -572,14 +661,17 @@ function App() {
   }
 
   function markCurrentSongSkip() {
-    const audio = audioRef.current
+    const audio = getActiveAudio()
     const songId = currentSong?.id || playStartRef.current.songId
     if (!songId || !audio) return
-    recordSkip(songId, audio.currentTime || 0, audio.duration || currentSong?.duration || playStartRef.current.duration)
+    recordSkip(songId, audio.currentTime || 0, playbackDuration(audio, currentSong) || playStartRef.current.duration)
     playStartRef.current = { songId: "", startedAt: 0, duration: 0 }
   }
 
   const next = useCallback(async () => {
+    const preparedNextSong = getNextSongForHandoff()
+    if (preparedNextSong && await handOffToPreparedTrack(preparedNextSong, 1, true)) return
+
     // Album/playlist playback is independent of the random/history queue.
     const orderedQueue = playbackQueueRef.current
     if (orderedQueue.isOrderedPlayback) {
@@ -589,6 +681,7 @@ function App() {
         orderedQueue.index < orderedQueue.songs.length - 1
       ) {
         markCurrentSongSkip()
+        if (playlistView?.type === "album") scrollAlbumTrackRef.current = true
         const nextIndex = orderedQueue.index + 1
         playbackQueueRef.current = { ...orderedQueue, index: nextIndex }
         setPlaybackQueueIndex(nextIndex)
@@ -603,6 +696,7 @@ function App() {
       ? await addRandomFuture(MIN_FUTURE - currentFutureCount)
       : []
     const availableLength = history.length + added.length
+    if (playlistView?.type === "album") scrollAlbumTrackRef.current = true
     setCurrentIndex((idx) => {
       if (idx < 0) return idx
       return Math.min(availableLength - 1, idx + 1)
@@ -615,12 +709,30 @@ function App() {
   ])
 
   const previous = useCallback(() => {
-    const audio = audioRef.current
+    const audio = getActiveAudio()
     if (audio && audio.currentTime > 3) {
       audio.currentTime = 0
       setTime((value) => ({ ...value, current: 0 }))
       return
     }
+
+    const preparedPreviousSong = getPreviousSongForHandoff()
+    if (preparedPreviousSong) {
+      handOffToPreparedTrack(preparedPreviousSong, -1, true).then((didHandOff) => {
+        if (!didHandOff) moveToPreviousTrack()
+      })
+      return
+    }
+
+    moveToPreviousTrack()
+  }, [
+    addRandomFuture,
+    currentIndex,
+    currentSong,
+    history.length,
+  ])
+
+  function moveToPreviousTrack() {
 
     markCurrentSongSkip()
 
@@ -628,6 +740,7 @@ function App() {
     if (orderedQueue.isOrderedPlayback) {
       if (orderedQueue.songs.length && orderedQueue.index > 0) {
         const previousIndex = orderedQueue.index - 1
+        if (playlistView?.type === "album") scrollAlbumTrackRef.current = true
         playbackQueueRef.current = { ...orderedQueue, index: previousIndex }
         setPlaybackQueueIndex(previousIndex)
       }
@@ -638,16 +751,12 @@ function App() {
     if (currentIndex >= 0 && currentFutureCount < MIN_FUTURE) {
       addRandomFuture(MIN_FUTURE - currentFutureCount)
     }
+    if (playlistView?.type === "album" && currentIndex > 0) scrollAlbumTrackRef.current = true
     setCurrentIndex((idx) => Math.max(0, idx - 1))
-  }, [
-    addRandomFuture,
-    currentIndex,
-    currentSong,
-    history.length,
-  ])
+  }
 
   const togglePlayback = useCallback(async () => {
-    const audio = audioRef.current
+    const audio = getActiveAudio()
     if (!audio) return
     if (!currentSong && songs.length) {
       if (playlistView?.type === "album" || playlistView?.type === "playlist") {
@@ -799,7 +908,7 @@ function App() {
     saveState({
       history,
       currentIndex,
-      position: audioRef.current?.currentTime || time.current || 0,
+      position: getActiveAudio()?.currentTime || time.current || 0,
       wasPlaying: isPlaying,
       username: auth.username,
     })
@@ -808,6 +917,24 @@ function App() {
   useEffect(() => {
     currentRowRef.current?.scrollIntoView({ block: "center", behavior: "smooth" })
   }, [currentIndex])
+
+  useEffect(() => {
+    if (!scrollAlbumTrackRef.current || playlistView?.type !== "album" || !currentSong?.id) return
+    scrollAlbumTrackRef.current = false
+    window.requestAnimationFrame(() => {
+      const rows = document.querySelectorAll(".songRow[data-song-id]")
+      const currentRow = Array.from(rows).find((row) => String(row.dataset.songId) === String(currentSong.id))
+      currentRow?.scrollIntoView({ block: "start", behavior: "smooth" })
+    })
+  }, [currentSong?.id, playlistView?.id, playlistView?.type, songs])
+
+  useEffect(() => {
+    if (!scrollAlbumListToTopRef.current || playlistView?.type !== "album") return
+    scrollAlbumListToTopRef.current = false
+    window.requestAnimationFrame(() => {
+      document.querySelector(".songList")?.scrollTo({ top: 0, behavior: "auto" })
+    })
+  }, [playlistView?.id, playlistView?.type, songs])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -820,10 +947,49 @@ function App() {
   }, [searchMode])
 
   useEffect(() => {
-    const audio = audioRef.current
+    const adjacentSongs = [getPreviousSongForHandoff(), getNextSongForHandoff()].filter(Boolean)
+    const standbyPlayers = [0, 1, 2].filter((index) => index !== activePlayer)
+
+    standbyPlayers.forEach((player, index) => {
+      const audio = audioPlayersRef.current[player]
+      const song = adjacentSongs[index]
+      if (!audio) return
+
+      if (!song) {
+        preparedSongIdsRef.current[player] = ""
+        audio.pause()
+        audio.removeAttribute("src")
+        audio.load()
+        return
+      }
+
+      if (preparedSongIdsRef.current[player] === song.id) return
+      audio.pause()
+      audio.src = subsonicUrl("stream", { id: song.id, maxBitRate: 320 }, auth)
+      audio.load()
+      preparedSongIdsRef.current[player] = song.id
+    })
+  }, [activePlayer, auth, currentIndex, currentSong?.id, history, playbackQueueIndex])
+
+  useEffect(() => {
+    const audio = getActiveAudio()
     if (!audio) return
+    let handoffTimer = null
+
+    const handOffToPreparedTrack = () => {
+      const nextSong = getNextSongForHandoff()
+      if (nextSong) handOffToPreparedTrack(nextSong, 1)
+    }
+
     const onTime = () => {
-      setTime({ current: audio.currentTime || 0, duration: audio.duration || currentSong?.duration || 0 })
+      const duration = playbackDuration(audio, currentSong)
+      setTime({ current: audio.currentTime || 0, duration })
+      const remaining = duration - audio.currentTime
+      if (!handoffTimer && remaining > 0 && remaining <= 1) {
+        // Schedule just before the boundary. This avoids audibly chopping the
+        // current track while allowing the preloaded player to take over.
+        handoffTimer = window.setTimeout(handOffToPreparedTrack, Math.max(0, remaining - 0.08) * 1000)
+      }
     }
     const onLoaded = () => {
       if (pendingSeekRef.current > 0 && Number.isFinite(audio.duration)) {
@@ -831,16 +997,24 @@ function App() {
         pendingSeekRef.current = 0
       }
     }
-    const onEnded = () => next()
+    const onEnded = () => {
+      if (!handoffRef.current || handoffRef.current.fromPlayer !== activePlayer) next()
+    }
     const onPlay = () => {
       playStartRef.current = {
         songId: currentSong?.id || "",
         startedAt: audio.currentTime || 0,
-        duration: audio.duration || currentSong?.duration || 0,
+        duration: playbackDuration(audio, currentSong),
       }
       setIsPlaying(true)
     }
-    const onPause = () => setIsPlaying(false)
+    const onPause = () => {
+      // During a prepared handoff the old player pauses only because the new
+      // player is already running. Do not let that event flip the main
+      // Play/Pause control back to its paused state.
+      if (handoffRef.current?.fromPlayer === activePlayer) return
+      setIsPlaying(false)
+    }
     audio.addEventListener("timeupdate", onTime)
     audio.addEventListener("durationchange", onTime)
     audio.addEventListener("loadedmetadata", onLoaded)
@@ -854,8 +1028,9 @@ function App() {
       audio.removeEventListener("ended", onEnded)
       audio.removeEventListener("play", onPlay)
       audio.removeEventListener("pause", onPause)
+      if (handoffTimer) window.clearTimeout(handoffTimer)
     }
-  }, [currentSong?.duration, currentSong?.id, next])
+  }, [activePlayer, addRandomFuture, currentIndex, currentSong?.duration, currentSong?.id, history, next, playbackQueueIndex])
 
   useEffect(() => {
     const previousSong = playStartRef.current
@@ -865,21 +1040,27 @@ function App() {
   }, [currentSong?.id])
 
   useEffect(() => {
-    if (!streamUrl || !audioRef.current) return
+    const audio = getActiveAudio()
+    if (!streamUrl || !audio) return
+    const handoff = handoffRef.current
+    if (handoff?.player === activePlayer) {
+      if (handoff.songId === currentSong?.id) handoffRef.current = null
+      return
+    }
     const shouldRestore =
       !didRestorePositionRef.current &&
       currentSong?.id === savedState?.history?.[savedState.currentIndex]?.id &&
       savedState.position > 0
     pendingSeekRef.current = shouldRestore ? savedState.position : 0
     didRestorePositionRef.current = true
-    audioRef.current.removeAttribute("poster")
-    audioRef.current.src = streamUrl
-    audioRef.current.play().catch((err) => {
+    audio.removeAttribute("poster")
+    audio.src = streamUrl
+    audio.play().catch((err) => {
       if (savedState?.wasPlaying) {
         setStatus(`Tap Play to resume: ${err.message}`)
       }
     })
-  }, [currentSong?.id, savedState, streamUrl])
+  }, [activePlayer, currentSong?.id, savedState, streamUrl])
 
   useEffect(() => {
     if (!("mediaSession" in navigator)) return
@@ -1330,6 +1511,7 @@ function App() {
         previousTitle: resultTitle,
         previousPlaylistView: playlistView,
       })
+      scrollAlbumListToTopRef.current = true
       setSongs((data.album?.song || []).map(normalizeSong))
       setPlaylistResults([])
       setAlbumResults([])
@@ -1722,9 +1904,23 @@ function App() {
     setMenu(null)
   }
 
+  function shuffleAlbumTracks() {
+    if (playlistView?.type !== "album" || !songs.length) return
+    const shuffled = [...songs]
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1))
+      ;[shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]]
+    }
+    markCurrentSongSkip()
+    scrollAlbumTrackRef.current = true
+    setSongs(shuffled)
+    startPlaybackQueue(shuffled, 0)
+    setStatus("")
+  }
+
   function logout() {
     const nextProfiles = removeUserProfile(auth.username)
-    audioRef.current?.pause()
+    getActiveAudio()?.pause()
     clearAuth()
     setUserProfiles(nextProfiles)
     if (nextProfiles.length) {
@@ -1745,14 +1941,14 @@ function App() {
 
   function switchUser(profile) {
     if (!profile?.username) return
-    audioRef.current?.pause()
+    getActiveAudio()?.pause()
     activateUserProfile(profile)
     setAuth(authState())
     setMenu(null)
   }
 
   function loginAnotherUser() {
-    audioRef.current?.pause()
+    getActiveAudio()?.pause()
     clearAuth()
     setAuth(emptyAuthState())
     setMenu(null)
@@ -1762,7 +1958,7 @@ function App() {
     return (
       <main className="loginScreen">
         <section className="loginPanel">
-          <p className="eyebrow">Tesla Navidrome</p>
+          <p className="eyebrow">Tesladrome</p>
           <h1>Login</h1>
           <form onSubmit={login}>
             <input name="username" autoComplete="username" placeholder="Username" />
@@ -1787,7 +1983,9 @@ function App() {
 
   return (
     <main className="app">
-      <audio ref={audioRef} preload="auto" />
+      <audio ref={(element) => { audioPlayersRef.current[0] = element }} preload="auto" />
+      <audio ref={(element) => { audioPlayersRef.current[1] = element }} preload="auto" />
+      <audio ref={(element) => { audioPlayersRef.current[2] = element }} preload="auto" />
       {dragState?.song && (
         <div
           className="dragGhost"
@@ -1819,10 +2017,10 @@ function App() {
             className="progress"
             type="range"
             min="0"
-            max={Math.max(1, time.duration || currentSong?.duration || 1)}
-            value={Math.min(time.current, time.duration || currentSong?.duration || 1)}
+            max={Math.max(1, usableDuration(time.duration) || usableDuration(currentSong?.duration) || 1)}
+            value={Math.min(time.current, usableDuration(time.duration) || usableDuration(currentSong?.duration) || 1)}
             onChange={(event) => {
-              if (audioRef.current) audioRef.current.currentTime = Number(event.target.value)
+              if (getActiveAudio()) getActiveAudio().currentTime = Number(event.target.value)
             }}
           />
         </div>
@@ -1831,17 +2029,24 @@ function App() {
             Settings
           </button>
           <div className="clock">
-            {formatTime(time.current)} / {formatTime(time.duration || currentSong?.duration || 0)}
+            {formatTime(time.current)} / {formatTime(usableDuration(time.duration) || usableDuration(currentSong?.duration))}
           </div>
         </div>
       </header>
 
       <section className="searchBar">
         {playlistView ? (
-          <button className="backToResults" type="button" onClick={closePlaylistView}>
-            <ArrowLeft size={30} />
-            Back
-          </button>
+          <div className="collectionActions">
+            <button className="backToResults" type="button" onClick={closePlaylistView}>
+              <ArrowLeft size={30} />
+              Back
+            </button>
+            {playlistView.type === "album" && (
+              <button className="albumShuffleButton" type="button" onClick={shuffleAlbumTracks}>
+                Shuffle
+              </button>
+            )}
+          </div>
         ) : searchMode === "search" ? (
           <div className="searchControls">
             <Search size={30} />
@@ -2078,6 +2283,7 @@ function SongRow({
     <article
       className={rowClassName}
       data-index={index}
+      data-song-id={song.id}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault()

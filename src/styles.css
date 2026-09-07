@@ -120,7 +120,7 @@ input {
 }
 
 .playerBar {
-  height: 112px;
+  height: 104px;
   display: grid;
   grid-template-columns: 304px minmax(0, 1fr) 150px;
   gap: 16px;
@@ -218,7 +218,7 @@ input {
 }
 
 .searchBar {
-  height: 84px;
+  height: 80px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 64px 112px 112px;
   gap: 10px;
@@ -294,10 +294,19 @@ input {
   gap: 8px;
 }
 
+.collectionActions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+}
+
 .backToResults {
-  grid-column: 1;
-  width: min(240px, 100%);
-  justify-self: start;
+  width: min(180px, 100%);
+}
+
+.albumShuffleButton {
+  min-width: 112px;
+  margin-left: auto;
 }
 
 .content {
@@ -757,7 +766,7 @@ h3 {
 
 @media (max-height: 620px) {
   .playerBar {
-    height: 100px;
+    height: 94px;
     grid-template-columns: 280px minmax(0, 1fr) 120px;
     padding: 8px 12px 14px;
   }
@@ -775,7 +784,7 @@ h3 {
   }
 
   .searchBar {
-    height: 76px;
+    height: 72px;
     grid-template-columns: minmax(0, 1fr) 58px 104px 112px;
     padding: 8px 12px;
   }
