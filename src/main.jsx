@@ -596,7 +596,7 @@ function App() {
       setIsPlaying(true)
       setActivePlayer(targetPlayer)
 
-      if (markAsSkipped && playlistView?.type === "album") {
+      if (markAsSkipped && (playlistView?.type === "album" || playlistView?.type === "playlist")) {
         scrollAlbumTrackRef.current = true
       }
 
@@ -650,7 +650,7 @@ function App() {
         orderedQueue.index < orderedQueue.songs.length - 1
       ) {
         markCurrentSongSkip()
-        if (playlistView?.type === "album") scrollAlbumTrackRef.current = true
+        if (playlistView?.type === "album" || playlistView?.type === "playlist") scrollAlbumTrackRef.current = true
         const nextIndex = orderedQueue.index + 1
         playbackQueueRef.current = { ...orderedQueue, index: nextIndex }
         setPlaybackQueueIndex(nextIndex)
@@ -684,7 +684,7 @@ function App() {
     if (!orderedQueue.isOrderedPlayback || !orderedQueue.songs.length || orderedQueue.index <= 0) return
     markCurrentSongSkip()
     const previousIndex = orderedQueue.index - 1
-    if (playlistView?.type === "album") scrollAlbumTrackRef.current = true
+    if (playlistView?.type === "album" || playlistView?.type === "playlist") scrollAlbumTrackRef.current = true
     playbackQueueRef.current = { ...orderedQueue, index: previousIndex }
     setPlaybackQueueIndex(previousIndex)
   }
@@ -853,7 +853,7 @@ function App() {
   }, [currentIndex])
 
   useEffect(() => {
-    if (!scrollAlbumTrackRef.current || playlistView?.type !== "album" || !currentSong?.id) return
+    if (!scrollAlbumTrackRef.current || !["album", "playlist"].includes(playlistView?.type) || !currentSong?.id) return
     scrollAlbumTrackRef.current = false
     window.requestAnimationFrame(() => {
       const rows = document.querySelectorAll(".songRow[data-song-id]")
@@ -1838,8 +1838,8 @@ function App() {
     setMenu(null)
   }
 
-  function shuffleAlbumTracks() {
-    if (playlistView?.type !== "album" || !songs.length) return
+  function shuffleCollectionTracks() {
+    if (!playlistView || !["album", "playlist"].includes(playlistView.type) || !songs.length) return
     const shuffled = [...songs]
     for (let index = shuffled.length - 1; index > 0; index -= 1) {
       const swapIndex = Math.floor(Math.random() * (index + 1))
@@ -1975,8 +1975,8 @@ function App() {
               <ArrowLeft size={30} />
               Back
             </button>
-            {playlistView.type === "album" && (
-              <button className="albumShuffleButton" type="button" onClick={shuffleAlbumTracks}>
+            {["album", "playlist"].includes(playlistView.type) && (
+              <button className="albumShuffleButton" type="button" onClick={shuffleCollectionTracks}>
                 Shuffle
               </button>
             )}
