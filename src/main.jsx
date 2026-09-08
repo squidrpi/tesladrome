@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client"
 import {
   ArrowLeft,
   ArrowRight,
+  ChevronDown,
   Eye,
   EyeOff,
   Heart,
@@ -324,11 +325,13 @@ function App() {
   const [dragState, setDragState] = useState(null)
   const [albumPage, setAlbumPage] = useState({ offset: 0, totalSize: 0, hasNext: false, loading: false })
   const [artistPage, setArtistPage] = useState({ offset: 0, hasNext: false, loading: false })
+  const [showScrollCue, setShowScrollCue] = useState(false)
   const audioPlayersRef = useRef([null, null, null])
   const [activePlayer, setActivePlayer] = useState(0)
   const preparedSongIdsRef = useRef(["", "", ""])
   const handoffRef = useRef(null)
   const searchInputRef = useRef(null)
+  const songListRef = useRef(null)
   const currentRowRef = useRef(null)
   const pendingSeekRef = useRef(savedState?.position || 0)
   const didRestorePositionRef = useRef(false)
@@ -347,6 +350,7 @@ function App() {
   }
 
   const playbackQueueActive = playbackQueue.length > 0 && playbackQueueIndex >= 0
+  const isScrollableCollection = Boolean(playlistView) || resultTitle.startsWith("Albums by ")
   const currentSong = playbackQueueActive
     ? playbackQueue[playbackQueueIndex]
     : currentIndex >= 0
@@ -871,6 +875,26 @@ function App() {
   }, [playlistView?.id, playlistView?.type, songs])
 
   useEffect(() => {
+    const list = songListRef.current
+    if (!list || !isScrollableCollection) {
+      setShowScrollCue(false)
+      return
+    }
+
+    const updateCue = () => {
+      setShowScrollCue(list.scrollTop < 4 && list.scrollHeight > list.clientHeight + 2)
+    }
+
+    const frame = window.requestAnimationFrame(updateCue)
+    const observer = "ResizeObserver" in window ? new ResizeObserver(updateCue) : null
+    observer?.observe(list)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer?.disconnect()
+    }
+  }, [albumResults.length, isScrollableCollection, playlistView?.id, resultTitle, songs.length])
+
+  useEffect(() => {
     document.documentElement.dataset.theme = theme
     localStorage.setItem(THEME_KEY, theme)
   }, [theme])
@@ -989,11 +1013,7 @@ function App() {
     didRestorePositionRef.current = true
     audio.removeAttribute("poster")
     audio.src = streamUrl
-    audio.play().catch((err) => {
-      if (savedState?.wasPlaying) {
-        setStatus(`Tap Play to resume: ${err.message}`)
-      }
-    })
+    audio.play().catch(() => {})
   }, [activePlayer, currentSong?.id, savedState, streamUrl])
 
   useEffect(() => {
@@ -1483,11 +1503,27 @@ function App() {
       setAlbumResults([])
       setArtistResults([])
       setResultTitle(`Album ${song.album || ""}`.trim())
-      setStatus(`Album: ${song.album}`)
+      setStatus("")
       setMenu(null)
     } catch (err) {
       setStatus(err.message)
     }
+  }
+
+  function showCurrentAlbum() {
+    if (!currentSong?.albumId) return
+
+    if (playlistView?.type === "album" && String(playlistView.id) === String(currentSong.albumId)) {
+      window.requestAnimationFrame(() => {
+        const rows = document.querySelectorAll(".songRow[data-song-id]")
+        const currentRow = Array.from(rows).find((row) => String(row.dataset.songId) === String(currentSong.id))
+        currentRow?.scrollIntoView({ block: "start", behavior: "smooth" })
+      })
+      return
+    }
+
+    scrollAlbumTrackRef.current = true
+    showAlbum(currentSong)
   }
 
   async function showArtist(song) {
@@ -1943,8 +1979,17 @@ function App() {
           </button>
         </div>
         <div className="nowPlaying">
-          <strong>{currentSong?.title || "Ready"}</strong>
-          <span>{currentSong ? `${currentSong.artist} - ${currentSong.album}` : `Logged in as ${auth.name}`}</span>
+          {currentSong?.albumId ? (
+            <button className="nowPlayingInfo" type="button" onClick={showCurrentAlbum}>
+              <strong>{currentSong.title}</strong>
+              <span>{`${currentSong.artist} - ${currentSong.album}`}</span>
+            </button>
+          ) : (
+            <div className="nowPlayingInfo">
+              <strong>{currentSong?.title || "Ready"}</strong>
+              <span>{currentSong ? `${currentSong.artist} - ${currentSong.album}` : `Logged in as ${auth.name}`}</span>
+            </div>
+          )}
           <input
             className="progress"
             type="range"
@@ -2031,8 +2076,8 @@ function App() {
             <button className="likedButton" type="button" onClick={showFavouriteAlbums} aria-label="Favourite albums" title="Favourite albums">
               <Heart size={28} />
             </button>
-            <button className="randomButton" type="button" onClick={showRandomAlbums}>Random</button>
             <button className="recentButton" type="button" onClick={showRecentAlbums}>Recent</button>
+            <button className="randomButton" type="button" onClick={showRandomAlbums}>Random</button>
           </>
         )}
       </section>
@@ -2102,7 +2147,14 @@ function App() {
               {status && <span>{status}</span>}
             </button>
           ) : null}
-          <div className="songList">
+          <div className="songListContainer">
+            <div
+              className="songList"
+              ref={songListRef}
+              onScroll={(event) => {
+                if (showScrollCue && event.currentTarget.scrollTop >= 4) setShowScrollCue(false)
+              }}
+            >
             {playlistResults.map((playlist) => (
               <PlaylistRow key={playlist.id} playlist={playlist} auth={auth} onSelect={() => showPlaylist(playlist)} />
             ))}
@@ -2136,6 +2188,13 @@ function App() {
                 }}
               />
             ))}
+            </div>
+            {showScrollCue && (
+              <div className="scrollCue" aria-hidden="true">
+                <ChevronDown size={22} />
+                Scroll for more
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -2410,7 +2469,11 @@ function ActionMenu({
           : menu.type === "artistLetters"
             ? "Jump to artist letter"
           : "History"
-  const actionSheetClassName = hasFocusedTextInput ? "actionSheet inputFocused" : "actionSheet"
+  const actionSheetClassName = [
+    "actionSheet",
+    hasFocusedTextInput ? "inputFocused" : "",
+    menu.type === "user" ? "settingsSheet" : "",
+  ].filter(Boolean).join(" ")
 
   function handleFocusCapture(event) {
     const tag = event.target?.tagName?.toLowerCase()
@@ -2505,13 +2568,15 @@ function ActionMenu({
                   Light
                 </button>
               </div>
-              <button type="button" onClick={onLoginAnotherUser}>
-                Log in
-              </button>
-              <button type="button" onClick={onLogout}>
-                <LogOut size={28} />
-                Logout
-              </button>
+              <div className="accountActions">
+                <button type="button" onClick={onLoginAnotherUser}>
+                  Log in
+                </button>
+                <button type="button" onClick={onLogout}>
+                  <LogOut size={22} />
+                  Logout
+                </button>
+              </div>
             </div>
           </>
         )}

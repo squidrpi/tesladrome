@@ -120,12 +120,12 @@ input {
 }
 
 .playerBar {
-  height: 104px;
+  height: 88px;
   display: grid;
   grid-template-columns: 304px minmax(0, 1fr) 150px;
   gap: 16px;
   align-items: center;
-  padding: 12px 14px 18px;
+  padding: 8px 14px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--panel-strong);
 }
@@ -135,6 +135,7 @@ input {
   grid-template-columns: repeat(3, 92px);
   gap: 14px;
   align-items: center;
+  transform: translateY(-2px);
 }
 
 .iconButton,
@@ -146,8 +147,8 @@ input {
 .transportControls > button {
   width: 92px;
   min-width: 92px;
-  min-height: 64px;
-  height: 64px;
+  min-height: 52px;
+  height: 52px;
 }
 
 .playButton {
@@ -159,6 +160,23 @@ input {
   min-width: 0;
 }
 
+.nowPlayingInfo {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+button.nowPlayingInfo {
+  cursor: pointer;
+}
+
 .nowPlaying strong,
 .songText strong,
 .historyItem strong {
@@ -168,6 +186,10 @@ input {
   white-space: nowrap;
   font-size: 25px;
   font-weight: 700;
+}
+
+.nowPlaying strong {
+  font-size: 22px;
 }
 
 .nowPlaying span,
@@ -186,7 +208,7 @@ input {
 .progress {
   width: 100%;
   min-height: 18px;
-  margin-top: 8px;
+  margin-top: 5px;
   accent-color: var(--accent);
 }
 
@@ -388,8 +410,30 @@ h3 {
   overflow-y: auto;
 }
 
-.songList {
+.songListContainer {
   height: calc(100% - 76px);
+  position: relative;
+}
+
+.songList {
+  height: 100%;
+}
+
+.scrollCue {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 58px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  padding-bottom: 8px;
+  color: var(--muted);
+  font-size: 16px;
+  background: linear-gradient(to bottom, transparent, var(--panel) 72%);
+  pointer-events: none;
 }
 
 .albumPager {
@@ -764,6 +808,76 @@ h3 {
   font-size: 25px;
 }
 
+.settingsSheet {
+  width: min(570px, 100%);
+  max-height: min(675px, calc(100vh - 28px));
+  padding: 14px;
+}
+
+.settingsSheet header {
+  top: -14px;
+  grid-template-columns: minmax(0, 1fr) 98px;
+  gap: 10px;
+  margin: -14px -14px 10px;
+  padding: 14px 14px 10px;
+}
+
+.settingsSheet h2 {
+  font-size: 19px;
+}
+
+.settingsSheet header button,
+.settingsSheet .playlistList button,
+.settingsSheet .themeButtons button,
+.settingsSheet .accountActions button {
+  min-height: 45px;
+  font-size: 19px;
+}
+
+.settingsSheet .playlistBox {
+  margin-top: 14px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.settingsSheet .playlistBox h3 {
+  font-size: 16px;
+}
+
+.settingsSheet .playlistList {
+  gap: 6px;
+}
+
+.settingsSheet .playlistList button,
+.settingsSheet .accountActions button {
+  margin-top: 0;
+  padding: 0 14px;
+}
+
+.settingsSheet .userMenuActions {
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.settingsSheet .themeButtons {
+  gap: 8px;
+}
+
+.accountActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settingsSheet .accountActions button {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
 .themeButtons .selected {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent), transparent 80%);
@@ -784,9 +898,9 @@ h3 {
 
 @media (max-height: 620px) {
   .playerBar {
-    height: 94px;
+    height: 80px;
     grid-template-columns: 280px minmax(0, 1fr) 120px;
-    padding: 8px 12px 14px;
+    padding: 6px 12px 8px;
   }
 
   .transportControls {
@@ -797,8 +911,8 @@ h3 {
   .transportControls > button {
     width: 84px;
     min-width: 84px;
-    min-height: 60px;
-    height: 60px;
+    min-height: 52px;
+    height: 52px;
   }
 
   .searchBar {
