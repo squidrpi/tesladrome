@@ -31,6 +31,7 @@ const CURRENT_AUTH_KEY = "tesladromeCurrentAuth"
 const MIN_FUTURE = 8
 const MAX_HISTORY = 200
 const ALBUM_PAGE_SIZE = 4
+const ALBUM_JUMP_PAGE_SIZE = 500
 const ARTIST_PAGE_SIZE = 4
 const ALBUM_LETTERS = ["0", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
 
@@ -342,8 +343,18 @@ function App() {
   const scrollAlbumListToTopRef = useRef(false)
   const playbackQueueRef = useRef({ songs: [], index: -1, isOrderedPlayback: false })
   const albumLoadRef = useRef(false)
+  // getAlbumList2 has no reliable total count on every Navidrome server. Keep
+  // the discovered count and letter positions for this browsing session so a
+  // second jump does not repeat its lookup requests.
+  const albumTotalSizeRef = useRef(0)
+  const albumLetterOffsetsRef = useRef({})
   const artistLoadRef = useRef(false)
   const artistCatalogRef = useRef([])
+
+  useEffect(() => {
+    albumTotalSizeRef.current = 0
+    albumLetterOffsetsRef.current = {}
+  }, [auth.username])
 
   function getActiveAudio() {
     return audioPlayersRef.current[activePlayer]
@@ -359,6 +370,9 @@ function App() {
   const futureCount = Math.max(0, history.length - currentIndex - 1)
   const canUseApi = auth.username && auth.subsonicToken && auth.salt
   const isEditablePlaylist = playlistView?.type === "playlist"
+  const currentCoverUrl = currentSong?.coverArt
+    ? subsonicUrl("getCoverArt", { id: currentSong.coverArt, size: 128, square: true }, auth)
+    : ""
 
   function startPlaybackQueue(queue, index) {
     const orderedSongs = [...queue]
@@ -390,6 +404,7 @@ function App() {
       )
       const albums = (data.albumList2?.album || []).map(normalizeAlbum)
       const totalSize = Number(data.albumList2?.totalSize || 0) || knownTotalSize
+      if (totalSize) albumTotalSizeRef.current = totalSize
       setAlbumResults(albums)
       setAlbumPage({
         offset,
@@ -417,72 +432,58 @@ function App() {
     albumLoadRef.current = true
     setAlbumPage((page) => ({ ...page, loading: true }))
     try {
-      let totalSize = albumPage.totalSize
-      if (!totalSize) {
-        let lastKnownAlbum = 0
-        let firstPossibleEmpty = 1
-
-        // Navidrome does not always return totalSize. Find the first empty
-        // offset with logarithmic probes, without storing album pages.
-        while (true) {
-          const data = await subsonic(
-            "getAlbumList2",
-            { type: "alphabeticalByName", size: 1, offset: firstPossibleEmpty },
-            auth,
-          )
-          if (!(data.albumList2?.album || []).length) break
-          lastKnownAlbum = firstPossibleEmpty
-          firstPossibleEmpty *= 2
-        }
-
-        let low = lastKnownAlbum + 1
-        let high = firstPossibleEmpty
-        while (low < high) {
-          const midpoint = Math.floor((low + high) / 2)
-          const data = await subsonic(
-            "getAlbumList2",
-            { type: "alphabeticalByName", size: 1, offset: midpoint },
-            auth,
-          )
-          if ((data.albumList2?.album || []).length) low = midpoint + 1
-          else high = midpoint
-        }
-        totalSize = low
+      const cachedOffset = albumLetterOffsetsRef.current[letter]
+      if (cachedOffset !== undefined) {
+        albumLoadRef.current = false
+        await loadAlbumPage(cachedOffset, albumTotalSizeRef.current || albumPage.totalSize)
+        return
       }
 
-      let low = 0
-      let high = totalSize - 1
-      let matchOffset = letter === "0" ? -1 : totalSize - 1
+      let offset = 0
+      let lastOffset = 0
+      let matchingAlbum = null
+      let fallbackAlbum = null
 
-      // Find the first alphabetically matching album without retaining the
-      // intermediate records in the browser.
-      while (low <= high) {
-        const midpoint = Math.floor((low + high) / 2)
+      // Navidrome may sort an album by a server-side sort name (for example,
+      // without a leading article). Scan bounded pages and select by the
+      // displayed name so the button always opens the first visible title for
+      // its letter.
+      while (true) {
         const data = await subsonic(
           "getAlbumList2",
-          { type: "alphabeticalByName", size: 1, offset: midpoint },
+          { type: "alphabeticalByName", size: ALBUM_JUMP_PAGE_SIZE, offset },
           auth,
         )
-        const name = normalizeAlbum(data.albumList2?.album?.[0] || {}).name.trim()
-        if (letter === "0" && /^\d/.test(name)) {
-          matchOffset = midpoint
-          high = midpoint - 1
-        } else if (letter !== "0" && name.localeCompare(letter, undefined, { sensitivity: "base" }) < 0) {
-          low = midpoint + 1
-        } else {
-          if (letter !== "0") {
-            matchOffset = midpoint
-            high = midpoint - 1
-          } else {
-            low = midpoint + 1
+        const albums = (data.albumList2?.album || []).map(normalizeAlbum)
+        if (!albums.length) {
+          break
+        }
+
+        for (const [index, album] of albums.entries()) {
+          const name = album.name.trim()
+          const albumAtOffset = { name, offset: offset + index }
+          const isMatch = letter === "0"
+            ? /^\d/.test(name)
+            : name.slice(0, 1).localeCompare(letter, undefined, { sensitivity: "base" }) === 0
+          const isFallback = letter !== "0" && name.localeCompare(letter, undefined, { sensitivity: "base" }) >= 0
+          if (isMatch && (!matchingAlbum || name.localeCompare(matchingAlbum.name, undefined, { sensitivity: "base" }) < 0)) {
+            matchingAlbum = albumAtOffset
+          }
+          if (isFallback && (!fallbackAlbum || name.localeCompare(fallbackAlbum.name, undefined, { sensitivity: "base" }) < 0)) {
+            fallbackAlbum = albumAtOffset
           }
         }
+
+        lastOffset = offset + albums.length - 1
+        offset += albums.length
       }
 
+      const matchOffset = matchingAlbum?.offset ?? fallbackAlbum?.offset ?? (letter === "0" ? 0 : lastOffset)
+      albumLetterOffsetsRef.current[letter] = Math.max(0, matchOffset)
       albumLoadRef.current = false
       // Start this page at the match itself, so the selected letter is the
       // first visible album rather than appearing at the bottom of a page.
-      await loadAlbumPage(Math.max(0, matchOffset), totalSize)
+      await loadAlbumPage(Math.max(0, matchOffset))
     } catch (err) {
       setStatus(err.message)
       setAlbumPage((page) => ({ ...page, loading: false }))
@@ -934,7 +935,8 @@ function App() {
     if (!audio) return
     let handoffTimer = null
 
-    const handOffToPreparedTrack = () => {
+    const attemptPreparedHandoff = () => {
+      handoffTimer = null
       const nextSong = getNextSongForHandoff()
       if (nextSong) handOffToPreparedTrack(nextSong, 1)
     }
@@ -946,7 +948,7 @@ function App() {
       if (!handoffTimer && remaining > 0 && remaining <= 1) {
         // Schedule just before the boundary. This avoids audibly chopping the
         // current track while allowing the preloaded player to take over.
-        handoffTimer = window.setTimeout(handOffToPreparedTrack, Math.max(0, remaining - 0.08) * 1000)
+        handoffTimer = window.setTimeout(attemptPreparedHandoff, Math.max(0, remaining - 0.08) * 1000)
       }
     }
     const onLoaded = () => {
@@ -1188,7 +1190,6 @@ function App() {
   async function showPlaylist(playlist) {
     pushCurrentView()
     try {
-      setStatus(`Loading playlist: ${playlist.name}`)
       const data = await subsonic("getPlaylist", { id: playlist.id }, auth)
       const playlistSongs = (data.playlist?.entry || []).map(normalizeSong)
       setPlaylistView({
@@ -1272,7 +1273,6 @@ function App() {
         !(previous.artistResults || []).length
       ) {
         try {
-          setStatus("Loading artists...")
           await loadArtistPage(previous.artistPageOffset || 0)
           setStatus("")
         } catch (err) {
@@ -1308,7 +1308,6 @@ function App() {
       !(playlistView.previousArtists || []).length
     ) {
       try {
-        setStatus("Loading artists...")
         await loadArtistPage(artistPage.offset || 0)
         setStatus("")
       } catch (err) {
@@ -1332,7 +1331,6 @@ function App() {
 
   async function randomPlay() {
     try {
-      setStatus("Loading random songs...")
       const data = await subsonic("getRandomSongs", { size: 30 }, auth)
       const randomSongs = (data.randomSongs?.song || []).map(normalizeSong)
       clearPlaybackQueue()
@@ -1351,7 +1349,6 @@ function App() {
 
   async function showFavouriteAlbums() {
     try {
-      setStatus("Loading favourite albums...")
       const data = await subsonic("getStarred2", {}, auth)
       const favouriteAlbums = (data.starred2?.album || []).map(normalizeAlbum)
       setSongs([])
@@ -1369,7 +1366,6 @@ function App() {
 
   async function showAllPlaylists() {
     try {
-      setStatus("Loading playlists...")
       const data = await subsonic("getPlaylists", {}, auth)
       setSongs([])
       setPlaylistResults((data.playlists?.playlist || []).map(normalizePlaylist))
@@ -1386,7 +1382,6 @@ function App() {
 
   async function showAllAlbums() {
     try {
-      setStatus("Loading albums...")
       setSongs([])
       setPlaylistResults([])
       setAlbumResults([])
@@ -1403,7 +1398,6 @@ function App() {
 
   async function showAllArtists() {
     try {
-      setStatus("Loading artists...")
       setSongs([])
       setPlaylistResults([])
       setAlbumResults([])
@@ -1422,7 +1416,6 @@ function App() {
 
   async function showAlbumCollection(type, title) {
     try {
-      setStatus(`Loading ${title.toLowerCase()}...`)
       const data = await subsonic("getAlbumList2", { type, size: ALBUM_PAGE_SIZE }, auth)
       setSongs([])
       setPlaylistResults([])
@@ -1448,7 +1441,6 @@ function App() {
   async function showAlbumResult(album) {
     pushCurrentView({ restoreAlbumId: album.id })
     try {
-      setStatus(`Loading album: ${album.name}`)
       const data = await subsonic("getAlbum", { id: album.id }, auth)
       setPlaylistView({
         type: "album",
@@ -1544,15 +1536,41 @@ function App() {
       // Save the current Artists page and the exact artist that was selected.
       pushCurrentView({ restoreArtistId: artistId })
 
-      setStatus(`Loading artist: ${song.artist}`)
-
       const data = await subsonic(
         "getArtist",
         { id: artistId },
         auth,
       )
 
-      const artistAlbums = (data.artist?.album || []).map(normalizeAlbum)
+      const artistAlbums = Array.from(
+        new Map((data.artist?.album || []).map(normalizeAlbum).map((album) => [album.id, album])).values(),
+      )
+
+      if (artistAlbums.length === 1) {
+        const album = artistAlbums[0]
+        const albumData = await subsonic("getAlbum", { id: album.id }, auth)
+        setPlaylistView({
+          type: "album",
+          id: album.id,
+          name: album.name,
+          starred: Boolean(albumData.album?.starred ?? album.starred),
+          previousSongs: songs,
+          previousPlaylists: playlistResults,
+          previousAlbums: albumResults,
+          previousArtists: artistResults,
+          previousTitle: resultTitle,
+          previousPlaylistView: playlistView,
+        })
+        scrollAlbumListToTopRef.current = true
+        setSongs((albumData.album?.song || []).map(normalizeSong))
+        setPlaylistResults([])
+        setAlbumResults([])
+        setArtistResults([])
+        setResultTitle(`Album ${album.name}`)
+        setStatus("")
+        setMenu(null)
+        return
+      }
 
       setPlaylistView({
         type: "artist",
@@ -1565,8 +1583,7 @@ function App() {
         previousTitle: resultTitle,
         previousPlaylistView: playlistView,
       })
-
-      // Artist view shows albums. Selecting an album then shows its tracks.
+      // Multi-album artist views show albums. Single-album artists open above.
       setSongs([])
       setPlaylistResults([])
       setAlbumResults(artistAlbums)
@@ -1979,27 +1996,39 @@ function App() {
           </button>
         </div>
         <div className="nowPlaying">
-          {currentSong?.albumId ? (
-            <button className="nowPlayingInfo" type="button" onClick={showCurrentAlbum}>
-              <strong>{currentSong.title}</strong>
-              <span>{`${currentSong.artist} - ${currentSong.album}`}</span>
-            </button>
-          ) : (
-            <div className="nowPlayingInfo">
-              <strong>{currentSong?.title || "Ready"}</strong>
-              <span>{currentSong ? `${currentSong.artist} - ${currentSong.album}` : `Logged in as ${auth.name}`}</span>
-            </div>
-          )}
-          <input
-            className="progress"
-            type="range"
-            min="0"
-            max={Math.max(1, usableDuration(time.duration) || usableDuration(currentSong?.duration) || 1)}
-            value={Math.min(time.current, usableDuration(time.duration) || usableDuration(currentSong?.duration) || 1)}
-            onChange={(event) => {
-              if (getActiveAudio()) getActiveAudio().currentTime = Number(event.target.value)
-            }}
-          />
+          <button
+            className="nowPlayingCover"
+            type="button"
+            onClick={showCurrentAlbum}
+            disabled={!currentSong?.albumId}
+            aria-label="Show current album"
+          >
+            <ListMusic size={30} />
+            {currentCoverUrl && <img src={currentCoverUrl} alt="" onError={(event) => { event.currentTarget.hidden = true }} />}
+          </button>
+          <div className="nowPlayingDetails">
+            {currentSong?.albumId ? (
+              <button className="nowPlayingInfo" type="button" onClick={showCurrentAlbum}>
+                <strong>{currentSong.title}</strong>
+                <span>{`${currentSong.artist} - ${currentSong.album}`}</span>
+              </button>
+            ) : (
+              <div className="nowPlayingInfo">
+                <strong>{currentSong?.title || "Ready"}</strong>
+                <span>{currentSong ? `${currentSong.artist} - ${currentSong.album}` : `Logged in as ${auth.name}`}</span>
+              </div>
+            )}
+            <input
+              className="progress"
+              type="range"
+              min="0"
+              max={Math.max(1, usableDuration(time.duration) || usableDuration(currentSong?.duration) || 1)}
+              value={Math.min(time.current, usableDuration(time.duration) || usableDuration(currentSong?.duration) || 1)}
+              onChange={(event) => {
+                if (getActiveAudio()) getActiveAudio().currentTime = Number(event.target.value)
+              }}
+            />
+          </div>
         </div>
         <div className="playerActions">
           <button className="secondaryButton settingsButton" type="button" onClick={() => setMenu({ type: "user" })}>
@@ -2170,6 +2199,7 @@ function App() {
                 song={song}
                 index={index}
                 auth={auth}
+                active={isPlaying && String(song.id) === String(currentSong?.id)}
                 playlistMode={isEditablePlaylist}
                 dragging={isEditablePlaylist && dragState?.type === "playlist" && dragState.fromIndex === index}
                 dropPosition={
@@ -2259,6 +2289,7 @@ function SongRow({
   song,
   index,
   auth,
+  active,
   playlistMode,
   dragging,
   dropPosition,
@@ -2267,7 +2298,6 @@ function SongRow({
   onPointerDragStart,
   onMenu,
 }) {
-  const coverUrl = song.coverArt ? subsonicUrl("getCoverArt", { id: song.coverArt, size: 96, square: true }, auth) : ""
   const rowClassName = [
     "songRow",
     playlistMode ? "playlistSongRow" : "",
@@ -2305,8 +2335,8 @@ function SongRow({
           <GripVertical size={26} />
         </button>
       )}
-      <button className="coverButton" type="button" onClick={onPlay}>
-        {coverUrl ? <img src={coverUrl} alt="" /> : <Play size={34} />}
+      <button className={active ? "coverButton playing" : "coverButton"} type="button" onClick={onPlay}>
+        <Play size={34} fill={active ? "currentColor" : "none"} />
       </button>
       <button className="songText" type="button" onClick={onPlay}>
         <strong>{song.title}</strong>
