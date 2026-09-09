@@ -188,7 +188,7 @@ function playbackDuration(audio, song) {
   return usableDuration(audio?.duration) || usableDuration(song?.duration)
 }
 
-function normalizeSong(song) {
+function normalizeSong(song, album = {}) {
   return {
     id: song.id,
     title: song.title || "Untitled",
@@ -196,6 +196,9 @@ function normalizeSong(song) {
     album: song.album || "",
     albumId: song.albumId || "",
     artistId: song.artistId || "",
+    genre: song.genre || album.genre || "",
+    year: song.year || album.year || "",
+    track: song.track || song.trackNumber || 0,
     duration: song.duration || 0,
     coverArt: song.coverArt,
   }
@@ -376,7 +379,7 @@ function App() {
 
   function startPlaybackQueue(queue, index) {
     const orderedSongs = [...queue]
-    playbackQueueRef.current = { songs: orderedSongs, index, isOrderedPlayback: true }
+    playbackQueueRef.current = { songs: orderedSongs, index, queueEndIndex: index + 1, isOrderedPlayback: true }
     setPlaybackQueue(orderedSongs)
     setPlaybackQueueIndex(index)
   }
@@ -928,7 +931,7 @@ function App() {
       audio.load()
       preparedSongIdsRef.current[player] = song.id
     })
-  }, [activePlayer, auth, currentIndex, currentSong?.id, history, playbackQueueIndex])
+  }, [activePlayer, auth, currentIndex, currentSong?.id, history, playbackQueue, playbackQueueIndex])
 
   useEffect(() => {
     const audio = getActiveAudio()
@@ -1007,14 +1010,20 @@ function App() {
       if (handoff.songId === currentSong?.id) handoffRef.current = null
       return
     }
-    const shouldRestore =
+    const isInitialRestoredSong =
       !didRestorePositionRef.current &&
-      currentSong?.id === savedState?.history?.[savedState.currentIndex]?.id &&
-      savedState.position > 0
-    pendingSeekRef.current = shouldRestore ? savedState.position : 0
+      currentSong?.id === savedState?.history?.[savedState.currentIndex]?.id
+    const shouldRestorePosition = isInitialRestoredSong && savedState.position > 0
+    pendingSeekRef.current = shouldRestorePosition ? savedState.position : 0
     didRestorePositionRef.current = true
     audio.removeAttribute("poster")
     audio.src = streamUrl
+    // Restore the last track and its position without unexpectedly starting
+    // audio when the app opens. Subsequent user-selected tracks still play.
+    if (isInitialRestoredSong) {
+      audio.load()
+      return
+    }
     audio.play().catch(() => {})
   }, [activePlayer, currentSong?.id, savedState, streamUrl])
 
@@ -1110,13 +1119,22 @@ function App() {
     startPlaybackQueue(songs, songIndex)
   }
 
-  function insertAfterCurrent(song) {
-    setHistory((items) => {
-      const index = currentIndex >= 0 ? currentIndex : -1
-      return [...items.slice(0, index + 1), song, ...items.slice(index + 1)]
-    })
+  function queueTrack(song) {
+    const orderedQueue = playbackQueueRef.current
+    if (orderedQueue.isOrderedPlayback && orderedQueue.index >= 0) {
+      const insertIndex = Math.max(orderedQueue.index + 1, orderedQueue.queueEndIndex ?? orderedQueue.index + 1)
+      const nextQueue = [
+        ...orderedQueue.songs.slice(0, insertIndex),
+        song,
+        ...orderedQueue.songs.slice(insertIndex),
+      ]
+      playbackQueueRef.current = { ...orderedQueue, songs: nextQueue, queueEndIndex: insertIndex + 1 }
+      setPlaybackQueue(nextQueue)
+      return
+    }
+
+    setHistory((items) => [...items, song])
     if (currentIndex < 0) setCurrentIndex(0)
-    setStatus(`Inserted after current song: ${song.title}`)
   }
 
   function playAllResults() {
@@ -1455,7 +1473,7 @@ function App() {
         previousPlaylistView: playlistView,
       })
       scrollAlbumListToTopRef.current = true
-      setSongs((data.album?.song || []).map(normalizeSong))
+      setSongs((data.album?.song || []).map((song) => normalizeSong(song, data.album)))
       setPlaylistResults([])
       setAlbumResults([])
       setArtistResults([])
@@ -1490,7 +1508,7 @@ function App() {
         previousTitle: resultTitle,
         previousPlaylistView: playlistView,
       })
-      setSongs((data.album?.song || []).map(normalizeSong))
+      setSongs((data.album?.song || []).map((song) => normalizeSong(song, data.album)))
       setPlaylistResults([])
       setAlbumResults([])
       setArtistResults([])
@@ -1562,7 +1580,7 @@ function App() {
           previousPlaylistView: playlistView,
         })
         scrollAlbumListToTopRef.current = true
-        setSongs((albumData.album?.song || []).map(normalizeSong))
+        setSongs((albumData.album?.song || []).map((song) => normalizeSong(song, albumData.album)))
         setPlaylistResults([])
         setAlbumResults([])
         setArtistResults([])
@@ -2198,7 +2216,6 @@ function App() {
                 key={song.id}
                 song={song}
                 index={index}
-                auth={auth}
                 active={isPlaying && String(song.id) === String(currentSong?.id)}
                 playlistMode={isEditablePlaylist}
                 dragging={isEditablePlaylist && dragState?.type === "playlist" && dragState.fromIndex === index}
@@ -2214,7 +2231,6 @@ function App() {
                 onPointerDragStart={(event) => beginPlaylistDrag(index, event)}
                 onMenu={() => {
                   setMenu({ type: isEditablePlaylist ? "playlistSong" : "song", song, index })
-                  loadPlaylists()
                 }}
               />
             ))}
@@ -2235,17 +2251,15 @@ function App() {
           playlists={playlists}
           newPlaylistName={newPlaylistName}
           setNewPlaylistName={setNewPlaylistName}
+          trackCoverUrl={menu.song?.coverArt ? subsonicUrl("getCoverArt", { id: menu.song.coverArt, size: 128, square: true }, auth) : ""}
           onClose={() => setMenu(null)}
-          onInsertAfter={() => {
-            insertAfterCurrent(menu.song)
+          onQueueTrack={() => {
+            queueTrack(menu.song)
             setMenu(null)
           }}
-          onAddPlaylist={(playlistId) => addSongToPlaylist(playlistId, menu.song.id)}
-          onCreatePlaylist={() => createPlaylistWithSong(menu.song.id)}
           onShowAlbum={() => showAlbum(menu.song)}
           onShowArtist={() => showArtist(menu.song)}
           onRemove={() => removeFromHistory(menu.index)}
-          onRemoveFromPlaylist={() => removeFromPlaylist(menu.index)}
           onClear={clearHistory}
           onRemovePast={removePastSongs}
           onRemoveFuture={removeFutureSongs}
@@ -2288,7 +2302,6 @@ function longPress(callback) {
 function SongRow({
   song,
   index,
-  auth,
   active,
   playlistMode,
   dragging,
@@ -2335,9 +2348,9 @@ function SongRow({
           <GripVertical size={26} />
         </button>
       )}
-      <button className={active ? "coverButton playing" : "coverButton"} type="button" onClick={onPlay}>
-        <Play size={34} fill={active ? "currentColor" : "none"} />
-      </button>
+      <div className={active ? "trackNumber playing" : "trackNumber"} aria-label={active ? "Now playing" : `Track ${song.track || index + 1}`}>
+        {active ? <Play size={16} fill="currentColor" aria-hidden="true" /> : song.track || index + 1}
+      </div>
       <button className="songText" type="button" onClick={onPlay}>
         <strong>{song.title}</strong>
         <span>{song.artist}</span>
@@ -2455,14 +2468,12 @@ function ActionMenu({
   playlists,
   newPlaylistName,
   setNewPlaylistName,
+  trackCoverUrl,
   onClose,
-  onInsertAfter,
-  onAddPlaylist,
-  onCreatePlaylist,
+  onQueueTrack,
   onShowAlbum,
   onShowArtist,
   onRemove,
-  onRemoveFromPlaylist,
   onClear,
   onRemovePast,
   onRemoveFuture,
@@ -2489,7 +2500,7 @@ function ActionMenu({
   const [hasFocusedTextInput, setHasFocusedTextInput] = useState(false)
   const isSongMenu = menu.type === "song" || menu.type === "playlistSong" || menu.type === "historySong"
   const menuTitle = isSongMenu
-    ? menu.song.title
+    ? "Track options"
     : menu.type === "results"
       ? resultTitle
       : menu.type === "user"
@@ -2529,7 +2540,7 @@ function ActionMenu({
   }
 
   return (
-    <div className="modalBackdrop">
+    <div className="modalBackdrop" onClick={onClose}>
       <section
         className={actionSheetClassName}
         ref={actionSheetRef}
@@ -2543,6 +2554,38 @@ function ActionMenu({
           <h2>{menuTitle}</h2>
           <button type="button" onClick={onClose}>Close</button>
         </header>
+
+        {isSongMenu && (
+          <div className="trackMenuInfo">
+            <div className="trackMenuMetadata">
+              <div>
+                <span>Title</span>
+                <strong>{menu.song.title}</strong>
+              </div>
+              <div>
+                <span>Album</span>
+                <strong>{menu.song.album || "Unknown album"}</strong>
+              </div>
+              <div>
+                <span>Artist</span>
+                <strong>{menu.song.artist || "Unknown artist"}</strong>
+              </div>
+              <div className="trackMenuFacts">
+                <div>
+                  <span>Genre</span>
+                  <strong>{menu.song.genre || "Unknown"}</strong>
+                </div>
+                <div>
+                  <span>Year</span>
+                  <strong>{menu.song.year || "Unknown"}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="trackMenuCover" aria-hidden="true">
+              {trackCoverUrl && <img src={trackCoverUrl} alt="" onError={(event) => { event.currentTarget.hidden = true }} />}
+            </div>
+          </div>
+        )}
 
         {menu.type === "results" && (
           <>
@@ -2611,48 +2654,23 @@ function ActionMenu({
           </>
         )}
 
-        {(menu.type === "song" || menu.type === "playlistSong") && (
+        {isSongMenu && (
           <>
-            <button type="button" onClick={onInsertAfter}>Insert</button>
-            <button type="button" onClick={onShowAlbum}>Show Album</button>
-            <button type="button" onClick={onShowArtist}>Show Artist</button>
+            <button className="queueAfterButton" type="button" onClick={onQueueTrack}>Queue track</button>
+            <div className="trackMenuBrowse">
+              <button type="button" onClick={onShowAlbum}>Show album</button>
+              <button type="button" onClick={onShowArtist}>Show artist</button>
+            </div>
           </>
-        )}
-
-        {menu.type === "playlistSong" && (
-          <button type="button" onClick={onRemoveFromPlaylist}>
-            <Trash2 size={24} />
-            Remove from Playlist
-          </button>
         )}
 
         {menu.type === "historySong" && (
           <>
-            <button type="button" onClick={onShowAlbum}>Show Album</button>
-            <button type="button" onClick={onShowArtist}>Show Artist</button>
             <button type="button" onClick={onRemove}>
               <Trash2 size={24} />
               Remove
             </button>
           </>
-        )}
-
-        {isSongMenu && (
-          <div className="playlistBox">
-            <h3>Add to Playlist</h3>
-            <div className="playlistList">
-              {playlists.map((playlist) => (
-                <button key={playlist.id} type="button" onClick={() => onAddPlaylist(playlist.id)}>
-                  <ListMusic size={24} />
-                  {playlist.name}
-                </button>
-              ))}
-            </div>
-            <div className="newPlaylist">
-              <input value={newPlaylistName} onChange={(event) => setNewPlaylistName(event.target.value)} placeholder="New Playlist" />
-              <button type="button" onClick={onCreatePlaylist}>Plus</button>
-            </div>
-          </div>
         )}
 
         {menu.type === "history" && (
