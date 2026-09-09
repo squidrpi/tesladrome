@@ -261,9 +261,17 @@ function loadSavedState(username = authState().username) {
     // Keep existing sessions created before the English terminology change.
     const history = Array.isArray(saved.history) ? saved.history : saved.verlauf
     if (!Array.isArray(history)) return null
+    const resumeSong = saved.currentSong?.id ? saved.currentSong : null
+    const savedHistory = history.slice(-MAX_HISTORY - MIN_FUTURE)
+    const savedIndex = Math.max(-1, Number(saved.currentIndex ?? -1))
+    const matchingIndex = resumeSong
+      ? savedHistory.findIndex((song) => String(song.id) === String(resumeSong.id))
+      : -1
     return {
-      history: history.slice(-MAX_HISTORY - MIN_FUTURE),
-      currentIndex: Math.max(-1, Number(saved.currentIndex ?? -1)),
+      // Album and playlist playback has a separate in-memory queue. Keep its
+      // active song as the restore target instead of using an older history item.
+      history: resumeSong && matchingIndex < 0 ? [resumeSong, ...savedHistory] : savedHistory,
+      currentIndex: resumeSong ? (matchingIndex >= 0 ? matchingIndex : 0) : savedIndex,
       position: Number(saved.position || 0),
       wasPlaying: Boolean(saved.wasPlaying),
     }
@@ -272,7 +280,7 @@ function loadSavedState(username = authState().username) {
   }
 }
 
-function saveState({ history, currentIndex, position, wasPlaying, username }) {
+function saveState({ history, currentIndex, position, wasPlaying, currentSong, username }) {
   localStorage.setItem(
     stateStorageKey(username),
     JSON.stringify({
@@ -280,6 +288,7 @@ function saveState({ history, currentIndex, position, wasPlaying, username }) {
       currentIndex,
       position,
       wasPlaying,
+      currentSong: currentSong || null,
       savedAt: Date.now(),
     }),
   )
@@ -604,7 +613,7 @@ function App() {
       setIsPlaying(true)
       setActivePlayer(targetPlayer)
 
-      if (markAsSkipped && (playlistView?.type === "album" || playlistView?.type === "playlist")) {
+      if (playlistView?.type === "album" || playlistView?.type === "playlist") {
         scrollAlbumTrackRef.current = true
       }
 
@@ -852,9 +861,10 @@ function App() {
       currentIndex,
       position: getActiveAudio()?.currentTime || time.current || 0,
       wasPlaying: isPlaying,
+      currentSong,
       username: auth.username,
     })
-  }, [auth.username, currentIndex, isPlaying, time.current, history])
+  }, [auth.username, currentIndex, currentSong, isPlaying, time.current, history])
 
   useEffect(() => {
     currentRowRef.current?.scrollIntoView({ block: "center", behavior: "smooth" })
