@@ -267,20 +267,42 @@ function loadSavedState(username = authState().username) {
     const matchingIndex = resumeSong
       ? savedHistory.findIndex((song) => String(song.id) === String(resumeSong.id))
       : -1
+    const savedPlaybackQueue = Array.isArray(saved.playbackQueue?.songs)
+      ? saved.playbackQueue.songs
+      : []
+    const savedPlaybackIndex = Number(saved.playbackQueue?.index)
+    const hasSavedPlaybackQueue = savedPlaybackQueue.length > 0 &&
+      Number.isInteger(savedPlaybackIndex) &&
+      savedPlaybackIndex >= 0 &&
+      savedPlaybackIndex < savedPlaybackQueue.length
+    const shouldRestoreHistorySong = resumeSong && !hasSavedPlaybackQueue
     return {
       // Album and playlist playback has a separate in-memory queue. Keep its
       // active song as the restore target instead of using an older history item.
-      history: resumeSong && matchingIndex < 0 ? [resumeSong, ...savedHistory] : savedHistory,
-      currentIndex: resumeSong ? (matchingIndex >= 0 ? matchingIndex : 0) : savedIndex,
+      history: shouldRestoreHistorySong && matchingIndex < 0 ? [resumeSong, ...savedHistory] : savedHistory,
+      currentIndex: shouldRestoreHistorySong ? (matchingIndex >= 0 ? matchingIndex : 0) : savedIndex,
       position: Number(saved.position || 0),
       wasPlaying: Boolean(saved.wasPlaying),
+      playbackQueue: hasSavedPlaybackQueue
+        ? {
+            songs: savedPlaybackQueue,
+            index: savedPlaybackIndex,
+            queueEndIndex: Math.min(
+              savedPlaybackQueue.length,
+              Math.max(savedPlaybackIndex + 1, Number(saved.playbackQueue.queueEndIndex) || 0),
+            ),
+          }
+        : null,
+      playbackView: ["album", "playlist"].includes(saved.playbackView?.type) && saved.playbackView?.id
+        ? saved.playbackView
+        : null,
     }
   } catch {
     return null
   }
 }
 
-function saveState({ history, currentIndex, position, wasPlaying, currentSong, username }) {
+function saveState({ history, currentIndex, position, wasPlaying, currentSong, playbackQueue, playbackQueueIndex, queueEndIndex, playbackView, username }) {
   localStorage.setItem(
     stateStorageKey(username),
     JSON.stringify({
@@ -289,6 +311,22 @@ function saveState({ history, currentIndex, position, wasPlaying, currentSong, u
       position,
       wasPlaying,
       currentSong: currentSong || null,
+      playbackQueue: playbackQueue.length && playbackQueueIndex >= 0
+        ? {
+            songs: playbackQueue,
+            index: playbackQueueIndex,
+            queueEndIndex,
+          }
+        : null,
+      playbackView: playbackQueue.length && playbackQueueIndex >= 0 && ["album", "playlist"].includes(playbackView?.type)
+        ? {
+            type: playbackView.type,
+            id: playbackView.id,
+            name: playbackView.name,
+            owner: playbackView.owner || "",
+            starred: Boolean(playbackView.starred),
+          }
+        : null,
       savedAt: Date.now(),
     }),
   )
@@ -315,8 +353,10 @@ function App() {
   const [playlistResults, setPlaylistResults] = useState([])
   const [albumResults, setAlbumResults] = useState([])
   const [artistResults, setArtistResults] = useState([])
-  const [resultTitle, setResultTitle] = useState("Results")
-  const [playlistView, setPlaylistView] = useState(null)
+  const [resultTitle, setResultTitle] = useState(
+    savedState?.playbackView ? `${savedState.playbackView.type === "album" ? "Album" : "Playlist"} - ${savedState.playbackView.name}` : "Results",
+  )
+  const [playlistView, setPlaylistView] = useState(savedState?.playbackView || null)
   // Stack of result pages so Back can restore the exact page we came from.
   const [viewStack, setViewStack] = useState([])
   const [searchMode, setSearchMode] = useState("home")
@@ -324,8 +364,8 @@ function App() {
   const [currentIndex, setCurrentIndex] = useState(savedState?.currentIndex ?? -1)
   // Explicit queue for ordered album/playlist playback.
   // history remains the random/history queue.
-  const [playbackQueue, setPlaybackQueue] = useState([])
-  const [playbackQueueIndex, setPlaybackQueueIndex] = useState(-1)
+  const [playbackQueue, setPlaybackQueue] = useState(savedState?.playbackQueue?.songs || [])
+  const [playbackQueueIndex, setPlaybackQueueIndex] = useState(savedState?.playbackQueue?.index ?? -1)
   const [isPlaying, setIsPlaying] = useState(false)
   const [status, setStatus] = useState("")
   const [time, setTime] = useState({ current: savedState?.position || 0, duration: 0 })
@@ -353,7 +393,12 @@ function App() {
   const playStartRef = useRef({ songId: "", startedAt: 0, duration: 0 })
   const scrollAlbumTrackRef = useRef(false)
   const scrollAlbumListToTopRef = useRef(false)
-  const playbackQueueRef = useRef({ songs: [], index: -1, isOrderedPlayback: false })
+  const playbackQueueRef = useRef({
+    songs: savedState?.playbackQueue?.songs || [],
+    index: savedState?.playbackQueue?.index ?? -1,
+    queueEndIndex: savedState?.playbackQueue?.queueEndIndex ?? -1,
+    isOrderedPlayback: Boolean(savedState?.playbackQueue),
+  })
   const albumLoadRef = useRef(false)
   // getAlbumList2 has no reliable total count on every Navidrome server. Keep
   // the discovered count and letter positions for this browsing session so a
@@ -739,7 +784,14 @@ function App() {
     const nextSavedState = loadSavedState(auth.username)
     setHistory(nextSavedState?.history || [])
     setCurrentIndex(nextSavedState?.currentIndex ?? -1)
-    clearPlaybackQueue()
+    if (nextSavedState?.playbackQueue) {
+      const restoredQueue = nextSavedState.playbackQueue
+      playbackQueueRef.current = { ...restoredQueue, isOrderedPlayback: true }
+      setPlaybackQueue(restoredQueue.songs)
+      setPlaybackQueueIndex(restoredQueue.index)
+    } else {
+      clearPlaybackQueue()
+    }
     setTime({ current: nextSavedState?.position || 0, duration: 0 })
     pendingSeekRef.current = nextSavedState?.position || 0
     didRestorePositionRef.current = false
@@ -748,11 +800,15 @@ function App() {
     setPlaylistResults([])
     setAlbumResults([])
     setArtistResults([])
-    setPlaylistView(null)
+    setPlaylistView(nextSavedState?.playbackView || null)
     setViewStack([])
     artistCatalogRef.current = []
     setArtistPage({ offset: 0, hasNext: false, loading: false })
-    setResultTitle("Results")
+    setResultTitle(nextSavedState?.playbackView ? `${nextSavedState.playbackView.type === "album" ? "Album" : "Playlist"} - ${nextSavedState.playbackView.name}` : "Results")
+    if (nextSavedState?.playbackView && canUseApi) {
+      didLoadInitialResultsRef.current = true
+      restorePlaybackView(nextSavedState.playbackView)
+    }
     setQuery("")
     setSearchMode("home")
   }, [auth.username])
@@ -862,9 +918,13 @@ function App() {
       position: getActiveAudio()?.currentTime || time.current || 0,
       wasPlaying: isPlaying,
       currentSong,
+      playbackQueue,
+      playbackQueueIndex,
+      queueEndIndex: playbackQueueRef.current.queueEndIndex,
+      playbackView: playlistView,
       username: auth.username,
     })
-  }, [auth.username, currentIndex, currentSong, isPlaying, time.current, history])
+  }, [auth.username, currentIndex, currentSong, isPlaying, time.current, history, playbackQueue, playbackQueueIndex, playlistView])
 
   useEffect(() => {
     currentRowRef.current?.scrollIntoView({ block: "center", behavior: "smooth" })
@@ -1236,6 +1296,41 @@ function App() {
       setAlbumResults([])
       setArtistResults([])
       setResultTitle(playlist.name)
+      setStatus("")
+    } catch (err) {
+      setStatus(err.message)
+    }
+  }
+
+  async function restorePlaybackView(view) {
+    try {
+      if (view.type === "album") {
+        const data = await subsonic("getAlbum", { id: view.id }, auth)
+        const album = data.album || {}
+        setPlaylistView({
+          type: "album",
+          id: view.id,
+          name: album.name || view.name || "Album",
+          starred: Boolean(album.starred ?? view.starred),
+        })
+        setSongs((album.song || []).map((song) => normalizeSong(song, album)))
+        setResultTitle(`Album - ${album.name || view.name || "Album"}`)
+      } else {
+        const data = await subsonic("getPlaylist", { id: view.id }, auth)
+        const playlist = data.playlist || {}
+        setPlaylistView({
+          type: "playlist",
+          id: view.id,
+          name: playlist.name || view.name || "Playlist",
+          owner: playlist.owner || view.owner || "",
+        })
+        setSongs((playlist.entry || []).map(normalizeSong))
+        setResultTitle(`Playlist - ${playlist.name || view.name || "Playlist"}`)
+      }
+      setPlaylistResults([])
+      setAlbumResults([])
+      setArtistResults([])
+      scrollAlbumTrackRef.current = true
       setStatus("")
     } catch (err) {
       setStatus(err.message)

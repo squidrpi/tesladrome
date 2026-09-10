@@ -122,7 +122,8 @@ input {
 .playerBar {
   height: 88px;
   display: grid;
-  grid-template-columns: 304px minmax(0, 1fr) 150px;
+  grid-template-areas: "actions now-playing controls";
+  grid-template-columns: 150px minmax(0, 1fr) 304px;
   gap: 16px;
   align-items: center;
   padding: 8px 14px 12px;
@@ -131,11 +132,13 @@ input {
 }
 
 .transportControls {
+  grid-area: controls;
   display: grid;
   grid-template-columns: repeat(3, 92px);
   gap: 14px;
   align-items: center;
   transform: translateY(-2px);
+  justify-self: end;
 }
 
 .iconButton,
@@ -157,6 +160,7 @@ input {
 }
 
 .nowPlaying {
+  grid-area: now-playing;
   min-width: 0;
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr);
@@ -253,28 +257,31 @@ button.nowPlayingInfo {
 }
 
 .playerActions {
+  grid-area: actions;
   min-width: 0;
   align-self: stretch;
   display: grid;
   grid-template-rows: 35px 1fr;
   gap: 4px;
   padding-bottom: 4px;
+  justify-items: start;
 }
 
 .settingsButton {
-  width: 75%;
+  width: 112px;
   min-width: 0;
   min-height: 32px;
   padding: 0 12px;
   font-size: 18px;
-  justify-self: end;
+  justify-self: start;
 }
 
 .playerActions .clock {
   align-self: end;
-  width: 100%;
+  width: 112px;
   padding-bottom: 0;
-  justify-self: end;
+  justify-self: start;
+  text-align: right;
   white-space: nowrap;
 }
 
@@ -1034,7 +1041,7 @@ h3 {
 @media (max-height: 620px) {
   .playerBar {
     height: 80px;
-    grid-template-columns: 280px minmax(0, 1fr) 120px;
+    grid-template-columns: 120px minmax(0, 1fr) 280px;
     padding: 6px 12px 8px;
   }
 
