@@ -281,6 +281,7 @@ function loadSavedState(username = authState().username) {
       // active song as the restore target instead of using an older history item.
       history: shouldRestoreHistorySong && matchingIndex < 0 ? [resumeSong, ...savedHistory] : savedHistory,
       currentIndex: shouldRestoreHistorySong ? (matchingIndex >= 0 ? matchingIndex : 0) : savedIndex,
+      currentSong: resumeSong,
       position: Number(saved.position || 0),
       wasPlaying: Boolean(saved.wasPlaying),
       playbackQueue: hasSavedPlaybackQueue
@@ -1082,7 +1083,7 @@ function App() {
     }
     const isInitialRestoredSong =
       !didRestorePositionRef.current &&
-      currentSong?.id === savedState?.history?.[savedState.currentIndex]?.id
+      String(currentSong?.id) === String(savedState?.currentSong?.id || savedState?.history?.[savedState.currentIndex]?.id || "")
     const shouldRestorePosition = isInitialRestoredSong && savedState.position > 0
     pendingSeekRef.current = shouldRestorePosition ? savedState.position : 0
     didRestorePositionRef.current = true
@@ -1205,44 +1206,6 @@ function App() {
 
     setHistory((items) => [...items, song])
     if (currentIndex < 0) setCurrentIndex(0)
-  }
-
-  function playAllResults() {
-    if (!songs.length) return
-
-    markCurrentSongSkip()
-
-    if (playlistView?.type === "album" || playlistView?.type === "playlist") {
-      // Album/playlist Play All follows the displayed track order.
-      startPlaybackQueue(songs, 0)
-    } else {
-      setHistory((items) => [...items.slice(0, currentIndex + 1), ...songs])
-      setCurrentIndex((idx) => (idx < 0 ? 0 : idx + 1))
-    }
-
-    setMenu(null)
-  }
-
-  function insertAllResults() {
-    if (!songs.length) return
-    setHistory((items) => [...items.slice(0, currentIndex + 1), ...songs, ...items.slice(currentIndex + 1)])
-    if (currentIndex < 0) setCurrentIndex(0)
-    setMenu(null)
-  }
-
-  function appendAllResults() {
-    if (!songs.length) return
-    setHistory((items) => [...items, ...songs])
-    if (currentIndex < 0) setCurrentIndex(0)
-    setMenu(null)
-  }
-
-  function replaceHistoryWithResults() {
-    if (!songs.length) return
-    markCurrentSongSkip()
-    setHistory(songs)
-    setCurrentIndex(0)
-    setMenu(null)
   }
 
   function pushCurrentView(options = {}) {
@@ -2289,15 +2252,10 @@ function App() {
             </div>
           )}
           {!(resultTitle === "Albums" || resultTitle === "Artists") || playlistView ? (
-            <button
-              className="sectionHeader buttonHeader"
-              type="button"
-              disabled={!songs.length && !playlistResults.length && !albumResults.length && !artistResults.length}
-              onClick={() => setMenu({ type: "results" })}
-            >
+            <div className="sectionHeader buttonHeader">
               <h2>{resultTitle}</h2>
               {status && <span>{status}</span>}
-            </button>
+            </div>
           ) : null}
           <div className="songListContainer">
             <div
@@ -2369,11 +2327,6 @@ function App() {
           onRemovePast={removePastSongs}
           onRemoveFuture={removeFutureSongs}
           onShuffle={shuffleHistory}
-          onPlayAllResults={playAllResults}
-          onInsertAllResults={insertAllResults}
-          onAppendAllResults={appendAllResults}
-          onReplaceResults={replaceHistoryWithResults}
-          resultTitle={resultTitle}
           onLogout={logout}
           userProfiles={userProfiles}
           currentUsername={auth.username}
@@ -2583,11 +2536,6 @@ function ActionMenu({
   onRemovePast,
   onRemoveFuture,
   onShuffle,
-  onPlayAllResults,
-  onInsertAllResults,
-  onAppendAllResults,
-  onReplaceResults,
-  resultTitle,
   onLogout,
   userProfiles,
   currentUsername,
@@ -2606,15 +2554,13 @@ function ActionMenu({
   const isSongMenu = menu.type === "song" || menu.type === "playlistSong" || menu.type === "historySong"
   const menuTitle = isSongMenu
     ? "Track options"
-    : menu.type === "results"
-      ? resultTitle
-      : menu.type === "user"
-        ? "Settings"
-        : menu.type === "albumLetters"
-          ? "Jump to album letter"
-          : menu.type === "artistLetters"
-            ? "Jump to artist letter"
-          : "History"
+    : menu.type === "user"
+      ? "Settings"
+      : menu.type === "albumLetters"
+        ? "Jump to album letter"
+        : menu.type === "artistLetters"
+          ? "Jump to artist letter"
+        : "History"
   const actionSheetClassName = [
     "actionSheet",
     hasFocusedTextInput ? "inputFocused" : "",
@@ -2690,15 +2636,6 @@ function ActionMenu({
               {trackCoverUrl && <img src={trackCoverUrl} alt="" onError={(event) => { event.currentTarget.hidden = true }} />}
             </div>
           </div>
-        )}
-
-        {menu.type === "results" && (
-          <>
-            <button type="button" onClick={onPlayAllResults}>Play All</button>
-            <button type="button" onClick={onInsertAllResults}>Insert All</button>
-            <button type="button" onClick={onAppendAllResults}>Append All</button>
-            <button type="button" onClick={onReplaceResults}>Replace History</button>
-          </>
         )}
 
         {(menu.type === "albumLetters" || menu.type === "artistLetters") && (
