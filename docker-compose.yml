@@ -1,0 +1,10 @@
+services:
+  tesladrome:
+    image: "${TESLADROME_IMAGE:-ghcr.io/squidrpi/tesladrome:latest}"
+    container_name: tesladrome
+    restart: unless-stopped
+    ports:
+      - "${TESLADROME_PORT:-8080}:80"
+    environment:
+      # For example: http://navidrome:4533 or https://music.example.com
+      NAVIDROME_URL: "${NAVIDROME_URL:?Set NAVIDROME_URL to your Navidrome server URL}"
