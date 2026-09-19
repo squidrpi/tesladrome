@@ -12,8 +12,8 @@ Tesladrome is based on github.com/KarlZeilhofer/tesla-navidrome
 
 ## Features
 
-- Designed to be a simple music player for navidrome server with easy album and artist selection.
-- Controls and text are large for easier usage when driving and using the Telsa browser.
+- A focused, simple Navidrome music player with easy album and artist browsing.
+- Large controls and clear text designed for safer use in the Tesla browser while driving.
 
 ## Limitations
 

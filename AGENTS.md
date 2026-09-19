@@ -6,9 +6,11 @@ TeslaDrome is a React single-page application built with Vite for Navidrome and 
 
 `main.jsx` is intentionally a single module. Its playback queue, local history, view stack, scrolling behaviour, and three-player audio handoff share state; make focused changes and avoid unrelated refactors. Preserve the distinction between ordered album/playlist playback and the persistent local history queue.
 
-`index.html` is the Vite entry document and `vite.config.js` sets the `/tesla/` deployment base. `dist/` is generated output and must not be edited manually.
+`index.html` is the Vite entry document and `vite.config.js` defaults to the `/tesla/` deployment base. The standalone Docker build sets `VITE_BASE=/` so it can serve the app at its own root. `dist/` is generated output and must not be edited manually.
 
 `nginx.conf`, `start_it`, and `start_daemon` provide the local Nginx Docker preview. It serves `dist/` under `/tesla/` and proxies the same-origin `/auth/` and `/rest/` endpoints to Navidrome. `scripts/deploy.sh` is the production deployment path.
+
+`Dockerfile`, `docker-compose.yml`, and `docker/nginx/default.conf.template` provide the standalone deployment. The container serves the root build and proxies `/auth/` and `/rest/` to the runtime `NAVIDROME_URL`. `.github/workflows/publish-container.yml` publishes the Docker image to GitHub Container Registry on pushes to `main`.
 
 ## Build, Test, and Development Commands
 
@@ -18,6 +20,8 @@ TeslaDrome is a React single-page application built with Vite for Navidrome and 
 - `./build_it` runs the local production build. It requires dependencies to be installed already.
 - `./start_it` serves `dist/` through local Nginx on port 8095; build first, then open `http://localhost:8095/tesla/`.
 - `./start_daemon` starts that preview in the background.
+- `docker compose --env-file .env.example config` validates the standalone Compose configuration without starting containers.
+- `docker build -t tesladrome:local .` builds the standalone image locally.
 
 There is no automated test suite. Before submitting changes, run `./build_it` and manually check the affected flows. For changes with broader UI or state impact, also check login, search, album and artist navigation, playback controls, queue/history navigation, playlists, and compact-height behaviour. Test in the Tesla browser when available.
 
@@ -41,4 +45,4 @@ Pull requests should state the user-visible behaviour changed, identify any Navi
 
 ## Security & Configuration
 
-Do not commit Navidrome credentials, tokens, private server details, or editor swap files. Treat API URLs and logs as sensitive because OpenSubsonic authentication values may be included in query parameters. Keep authentication browser-local and verify changes preserve the separate Tesla-specific storage.
+Do not commit Navidrome credentials, tokens, private server details, `.env` files, or editor swap files. Treat API URLs and logs as sensitive because OpenSubsonic authentication values may be included in query parameters. Keep authentication browser-local and verify changes preserve the separate Tesla-specific storage. The standalone container receives its Navidrome URL only through `NAVIDROME_URL` at runtime.
