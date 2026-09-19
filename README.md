@@ -2,7 +2,7 @@
 
 Tesladrome is a touch-optimized web UI for [Navidrome](https://www.navidrome.org/) and compatible OpenSubsonic servers. It is designed for the Tesla in-car browser, where the usable viewport is limited.
 
-The app is a Vite/React single-page app. It can be run in its own docker continaer or run on the same origin as Navidrome, for example:
+The app is a Vite/React single-page app. It can be run in its own docker container or run on the same origin as Navidrome, for example:
 
 ```text
 https://navidrome.example.com/tesla/
@@ -12,15 +12,15 @@ Tesladrome is based on github.com/KarlZeilhofer/tesla-navidrome
 
 ## Features
 
-- Designed to be a simple music player for navidrome server with simple album and artist selection.
+- Designed to be a simple music player for navidrome server with easy album and artist selection.
 - Controls and text are large for easier usage when driving and using the Telsa browser.
 
 ## Limitations
 
-- Due to the Tesla browser not allowing processing when in the background next tracks will not play when the browser is not in the foreground. 
-- Media Miniplayer does not show playback controls except for stop. This is a Tesla browser limitation. The controls are coded into this app and may work in future if Tesla allows it.
-- When stopping a track or it plays the final track in an album Tesla will start playing the last selected media source automatically. This cannot be stopped and is a Tesla design. A workaround is to select bluetooth before starting this app.
-- The Prev/Next navigation for Artists and Albums is used as the Tesla browser has limited memory available.
+- Tesla’s browser limits background processing, so automatic track changes may not occur while the browser is not visible.
+- Tesla’s Media Miniplayer currently provides only a Stop control for browser audio. Playback controls are included in TeslaDrome and may become available in the Miniplayer if Tesla adds browser support.
+- When playback stops, or the final track of an album ends, Tesla may automatically resume the previously selected media source.  This is Tesla behaviour and cannot currently be prevented. Selecting Bluetooth before starting TeslaDrome can work around it.
+- Artist and album lists use Previous and Next paging because the Tesla browser has limited available memory.
 
 # Installation
 
