@@ -18,8 +18,8 @@ Tesladrome is based on github.com/KarlZeilhofer/tesla-navidrome
 ## Limitations
 
 - Tesla’s browser limits background processing, so automatic track changes may not occur while the browser is not visible.
-- Tesla’s Media Miniplayer currently provides only a Stop control for browser audio. Playback controls are included in TeslaDrome and may become available in the Miniplayer if Tesla adds browser support.
-- When playback stops, or the final track of an album ends, Tesla may automatically resume the previously selected media source.  This is Tesla behaviour and cannot currently be prevented. Selecting Bluetooth before starting TeslaDrome can work around it.
+- Tesla’s Media Miniplayer currently provides only a Stop control for browser audio. Playback controls are included in Tesladrome and may become available in the Miniplayer if Tesla adds browser support.
+- When playback stops, or the final track of an album ends, Tesla may automatically resume the previously selected media source.  This is Tesla behaviour and cannot currently be prevented. Selecting Bluetooth before starting Tesladrome can work around it.
 - Artist and album lists use Previous and Next paging because the Tesla browser has limited available memory.
 
 # Installation
