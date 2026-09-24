@@ -2235,7 +2235,7 @@ function App() {
                   disabled={artistPage.offset === 0 || artistPage.loading}
                 >
                   <ArrowLeft size={24} />
-                  Previous
+                  Prev
                 </button>
                 <button type="button" onClick={() => setMenu({ type: "artistLetters" })} disabled={artistPage.loading}>
                   A-Z
